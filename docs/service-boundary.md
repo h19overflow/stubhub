@@ -8,7 +8,8 @@ ownership. Boundaries change only when concrete requirements justify it.
 ## Current baseline
 
 The application has one frontend client and three backend services: Identity,
-Tickets, and Orders. The event bus is shared infrastructure, not a service.
+Tickets, and Orders. Redis Streams is selected as shared event-delivery
+infrastructure, not as a service. Event contracts are not yet defined.
 
 ```text
 Frontend Client
@@ -21,6 +22,10 @@ Frontend Client
                +-- Expiration worker/module
                +-- Payments module
                         +-- Stripe adapter
+
+Redis Streams Event Bus
+      +-- Shared durable event delivery
+      +-- Producers and consumers not yet defined
 ```
 
 Payments and Expiration are internal Orders capabilities. The next design phase
@@ -120,7 +125,7 @@ undecided.
 | Payment attempts | Orders Payments module |
 | Stripe integration | Stripe adapter inside Payments |
 | Browser presentation | Frontend Client |
-| Event delivery | Shared infrastructure |
+| Event delivery | Redis Streams shared infrastructure |
 
 ## Communication rules
 
@@ -130,6 +135,10 @@ undecided.
 - Sensitive credentials and payment details do not cross boundaries.
 - Commands and observed facts must be distinguished during event design.
 - Duplicate requests and duplicate delivery must be safe.
+- Redis Streams delivery is treated as at-least-once; consumers must be
+  idempotent and safe for duplicate and late messages.
+- Redis Pub/Sub and Redis key-expiration notifications are not used for durable
+  business facts or authoritative expiration.
 
 ## Open design questions
 

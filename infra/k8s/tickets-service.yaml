@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: tickets
+  namespace: stubhub
+spec:
+  selector:
+    app: tickets
+  ports:
+    - name: http
+      port: 3002
+      targetPort: http

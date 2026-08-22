@@ -1,0 +1,23 @@
+{
+  "name": "stubhub-marketplace",
+  "private": true,
+  "workspaces": [
+    "client",
+    "auth",
+    "tickets",
+    "orders"
+  ],
+  "scripts": {
+    "dev": "skaffold dev",
+    "delete": "skaffold delete",
+    "dev:client": "npm run dev --workspace @stubhub/client",
+    "dev:identity": "npm run dev --workspace @stubhub/identity",
+    "dev:tickets": "npm run dev --workspace @stubhub/tickets",
+    "dev:orders": "npm run dev --workspace @stubhub/orders",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

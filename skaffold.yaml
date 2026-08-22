@@ -1,0 +1,76 @@
+apiVersion: skaffold/v4beta14
+kind: Config
+metadata:
+  name: stubhub-marketplace
+build:
+  local:
+    push: false
+  artifacts:
+    - image: stubhub-client
+      context: .
+      docker:
+        dockerfile: Dockerfile
+        target: client-dev
+      sync:
+        manual:
+          - src: "client/app/**/*"
+            dest: /app/client/app
+    - image: stubhub-identity
+      context: .
+      docker:
+        dockerfile: Dockerfile
+        target: identity-dev
+      sync:
+        manual:
+          - src: "auth/src/**/*.ts"
+            dest: /app/auth/src
+    - image: stubhub-tickets
+      context: .
+      docker:
+        dockerfile: Dockerfile
+        target: tickets-dev
+      sync:
+        manual:
+          - src: "tickets/src/**/*.ts"
+            dest: /app/tickets/src
+    - image: stubhub-orders
+      context: .
+      docker:
+        dockerfile: Dockerfile
+        target: orders-dev
+      sync:
+        manual:
+          - src: "orders/src/**/*.ts"
+            dest: /app/orders/src
+manifests:
+  rawYaml:
+    - infra/k8s/*.yaml
+deploy:
+  kubectl:
+    defaultNamespace: stubhub
+portForward:
+  - resourceType: service
+    resourceName: client
+    namespace: stubhub
+    port: 3000
+    localPort: 3000
+  - resourceType: service
+    resourceName: identity
+    namespace: stubhub
+    port: 3001
+    localPort: 3001
+  - resourceType: service
+    resourceName: tickets
+    namespace: stubhub
+    port: 3002
+    localPort: 3002
+  - resourceType: service
+    resourceName: orders
+    namespace: stubhub
+    port: 3003
+    localPort: 3003
+  - resourceType: service
+    resourceName: redis
+    namespace: stubhub
+    port: 6379
+    localPort: 6379
