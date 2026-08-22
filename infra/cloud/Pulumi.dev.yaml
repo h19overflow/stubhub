@@ -1,0 +1,5 @@
+config:
+  aws:region: ap-southeast-2
+  stubhub-cloud:kubernetesVersion: "1.36"
+  stubhub-cloud:operatorCidr: 202.168.76.101/32
+encryptionsalt: v1:j5Oaa5FrDBo=:v1:2My43Dw6oXHnfJ93:eYGm0YCQkbYbKuBowYgJ6SASDc/m/w==

@@ -80,6 +80,7 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=identity-prod-deps /app/node_modules ./node_modules
 COPY --from=identity-build /app/auth/package.json ./auth/package.json
+COPY --from=identity-build /app/auth/migrations ./auth/migrations
 COPY --from=identity-build /app/auth/dist ./auth/dist
 USER 1000:1000
 EXPOSE 3001

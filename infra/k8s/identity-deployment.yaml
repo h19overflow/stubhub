@@ -23,6 +23,15 @@ spec:
           env:
             - name: PORT
               value: "3001"
+            - name: IDENTITY_DB_PATH
+              value: /data/identity.sqlite
+            - name: SMTP_HOST
+              value: mailpit
+            - name: SMTP_PORT
+              value: "1025"
+          volumeMounts:
+            - name: identity-data
+              mountPath: /data
           ports:
             - name: http
               containerPort: 3001
@@ -50,3 +59,7 @@ spec:
             capabilities:
               drop: ["ALL"]
             runAsNonRoot: true
+      volumes:
+        - name: identity-data
+          persistentVolumeClaim:
+            claimName: identity-data

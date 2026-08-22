@@ -1,0 +1,25 @@
+{
+  "name": "@stubhub/cloud",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "preview": "pulumi preview",
+    "up": "pulumi up",
+    "destroy": "pulumi destroy"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@pulumi/aws": "^7.43.0",
+    "@pulumi/awsx": "^3.8.0",
+    "@pulumi/eks": "^4.3.0",
+    "@pulumi/kubernetes": "^4.33.0",
+    "@pulumi/pulumi": "^3.259.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^6.0.3"
+  }
+}

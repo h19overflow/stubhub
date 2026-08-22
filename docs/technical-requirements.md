@@ -24,7 +24,7 @@ The implementation must use:
 - Kubernetes for orchestration.
 - Skaffold for the local Kubernetes build/deploy/development loop.
 - AWS as the hosting platform.
-- Pulumi written in Python for infrastructure-as-code.
+- Pulumi written in TypeScript for infrastructure-as-code.
 
 These choices do not determine how many services exist, how data is stored, or
 which component owns a workflow.

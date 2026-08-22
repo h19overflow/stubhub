@@ -10,6 +10,9 @@
   "scripts": {
     "dev": "skaffold dev",
     "delete": "skaffold delete",
+    "cloud:preview": "npm --prefix infra/cloud run preview",
+    "cloud:up": "npm --prefix infra/cloud run up",
+    "cloud:destroy": "npm --prefix infra/cloud run destroy",
     "dev:client": "npm run dev --workspace @stubhub/client",
     "dev:identity": "npm run dev --workspace @stubhub/identity",
     "dev:tickets": "npm run dev --workspace @stubhub/tickets",
@@ -18,6 +21,6 @@
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   }
 }

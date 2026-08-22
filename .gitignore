@@ -5,5 +5,10 @@ coverage/
 .env
 .env.*
 !.env.example
+.pulumi-passphrase
+.kubeconfig
 npm-debug.log*
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 .DS_Store

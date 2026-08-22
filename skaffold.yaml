@@ -74,3 +74,8 @@ portForward:
     namespace: stubhub
     port: 6379
     localPort: 6379
+  - resourceType: service
+    resourceName: mailpit
+    namespace: stubhub
+    port: 8025
+    localPort: 8025
