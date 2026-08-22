@@ -4,7 +4,6 @@ import { database } from "./database.js";
 import type { ChallengePurpose } from "./email.js";
 
 type Credentials = { email: string; password: string };
-type EmailCode = { email: string; code: string };
 type PublicUser = { id: string; email: string; emailVerified: boolean };
 type UserRow = {
   id: string;
@@ -36,31 +35,6 @@ const CHALLENGE_COOLDOWN_MS = 60 * 1_000;
 const SIGNIN_LOCK_MS = 5 * 60 * 1_000;
 const cookieSecurity = process.env.NODE_ENV === "production" ? "; Secure" : "";
 
-function normalizeEmail(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const email = value.trim().toLowerCase();
-  return email.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
-}
-
-function readCredentials(body: unknown): Credentials | null {
-  if (!body || typeof body !== "object") return null;
-  const { email: rawEmail, password } = body as Record<string, unknown>;
-  const email = normalizeEmail(rawEmail);
-  if (!email || typeof password !== "string" || password.length < 8 || password.length > 256) return null;
-  return { email, password };
-}
-
-function readEmail(body: unknown): string | null {
-  if (!body || typeof body !== "object") return null;
-  return normalizeEmail((body as Record<string, unknown>).email);
-}
-
-function readEmailCode(body: unknown): EmailCode | null {
-  if (!body || typeof body !== "object") return null;
-  const { email: rawEmail, code } = body as Record<string, unknown>;
-  const email = normalizeEmail(rawEmail);
-  return email && typeof code === "string" && /^\d{6}$/.test(code) ? { email, code } : null;
-}
 
 async function hashSecret(secret: string): Promise<string> {
   const salt = randomBytes(16).toString("hex");
@@ -318,9 +292,6 @@ export {
   currentUser,
   findUserByEmail,
   issueChallenge,
-  readCredentials,
-  readEmail,
-  readEmailCode,
   revokeSession,
   sessionCookie,
 };

@@ -4,22 +4,21 @@ import {
   createSession,
   findUserByEmail,
   issueChallenge,
-  readEmail,
-  readEmailCode,
   sessionCookie,
 } from "../auth-repo.js";
 import { sendCode } from "../email.js";
+import { emailCodeSchema, emailSchema } from "./schemas.js";
 
 const router = express.Router();
 
 router.post("/verify-email/request", async (request, response) => {
-  const email = readEmail(request.body);
-  if (!email) {
+  const input = emailSchema.safeParse(request.body);
+  if (!input.success) {
     response.status(400).json({ error: "A valid email is required" });
     return;
   }
 
-  const user = findUserByEmail(email);
+  const user = findUserByEmail(input.data.email);
   if (user && !user.emailVerified) {
     const code = await issueChallenge(user, "verify_email");
     if (code) {
@@ -35,13 +34,13 @@ router.post("/verify-email/request", async (request, response) => {
 });
 
 router.post("/verify-email", async (request, response) => {
-  const input = readEmailCode(request.body);
-  if (!input) {
+  const input = emailCodeSchema.safeParse(request.body);
+  if (!input.success) {
     response.status(400).json({ error: "A valid email and six-digit code are required" });
     return;
   }
 
-  const user = await consumeChallenge(input.email, input.code, "verify_email");
+  const user = await consumeChallenge(input.data.email, input.data.code, "verify_email");
   if (!user) {
     response.status(400).json({ error: "Invalid or expired verification code" });
     return;

@@ -1,17 +1,18 @@
 import express from "express";
-import { createUser, issueChallenge, readCredentials } from "../auth-repo.js";
+import { createUser, issueChallenge } from "../auth-repo.js";
 import { sendCode } from "../email.js";
+import { credentialsSchema } from "./schemas.js";
 
 const router = express.Router();
 
 router.post("/signup", async (request, response) => {
-  const credentials = readCredentials(request.body);
-  if (!credentials) {
+  const result = credentialsSchema.safeParse(request.body);
+  if (!result.success) {
     response.status(400).json({ error: "A valid email and password of 8 to 256 characters are required" });
     return;
   }
 
-  const user = await createUser(credentials);
+  const user = await createUser(result.data);
   if (!user) {
     response.status(409).json({ error: "Email is already registered" });
     return;

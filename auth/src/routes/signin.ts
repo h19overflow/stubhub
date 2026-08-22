@@ -4,22 +4,21 @@ import {
   consumeChallenge,
   createSession,
   issueChallenge,
-  readCredentials,
-  readEmailCode,
   sessionCookie,
 } from "../auth-repo.js";
 import { sendCode } from "../email.js";
+import { credentialsSchema, emailCodeSchema } from "./schemas.js";
 
 const router = express.Router();
 
 router.post("/signin", async (request, response) => {
-  const credentials = readCredentials(request.body);
-  if (!credentials) {
+  const credentials = credentialsSchema.safeParse(request.body);
+  if (!credentials.success) {
     response.status(400).json({ error: "A valid email and password of 8 to 256 characters are required" });
     return;
   }
 
-  const result = await authenticateUser(credentials);
+  const result = await authenticateUser(credentials.data);
   if (result.status === "invalid") {
     response.status(401).json({ error: "Invalid email or password" });
     return;
@@ -47,13 +46,13 @@ router.post("/signin", async (request, response) => {
 });
 
 router.post("/signin/code", async (request, response) => {
-  const input = readEmailCode(request.body);
-  if (!input) {
+  const input = emailCodeSchema.safeParse(request.body);
+  if (!input.success) {
     response.status(400).json({ error: "A valid email and six-digit code are required" });
     return;
   }
 
-  const user = await consumeChallenge(input.email, input.code, "signin");
+  const user = await consumeChallenge(input.data.email, input.data.code, "signin");
   if (!user) {
     response.status(401).json({ error: "Invalid or expired sign-in code" });
     return;
