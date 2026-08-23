@@ -29,6 +29,9 @@ spec:
               value: mailpit
             - name: SMTP_PORT
               value: "1025"
+            # Local learning secret only; production must inject its own random value.
+            - name: JWT_SECRET
+              value: local-development-jwt-secret-change-before-production
           volumeMounts:
             - name: identity-data
               mountPath: /data

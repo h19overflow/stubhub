@@ -1,10 +1,16 @@
 import express from "express";
-import { currentUser } from "../repos/session-repo.js";
+import { verifyAccessToken } from "../access-token.js";
 
 const router = express.Router();
 
-router.get("/current-user", (request, response) => {
-  response.json({ user: currentUser(request.headers.cookie) });
+router.get("/current-user", async (request, response) => {
+  const user = await verifyAccessToken(request.headers.authorization);
+  if (!user) {
+    response.setHeader("WWW-Authenticate", "Bearer");
+    response.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  response.json({ user });
 });
 
 export { router as currentUser };

@@ -1,8 +1,9 @@
 # Identity Service
 
 The Identity service owns accounts, credentials, email verification, sign-in,
-sign-out, and browser sessions for the StubHub learning project. The code lives
-under `auth/`, while the runtime and Kubernetes resource are named `identity`.
+sign-out, signed access tokens, and refresh tokens for the StubHub learning
+project. The code lives under `auth/`, while the runtime and Kubernetes resource
+are named `identity`.
 
 This document describes the current implementation. Source code and migrations
 remain authoritative when behavior changes.
@@ -15,7 +16,9 @@ Identity owns:
 - password hashing and password verification;
 - email verification challenges;
 - two-step sign-in using a password followed by an emailed code;
-- session creation, lookup, expiration, and revocation; and
+- access-token signing and verification;
+- refresh-token creation, rotation, expiration, replay detection, and revocation;
+  and
 - the public user identity returned to clients.
 
 Identity does not own:
@@ -24,12 +27,11 @@ Identity does not own:
 - tickets, orders, payments, or reservations;
 - authorization rules for another service's resources;
 - credentials stored by Tickets or Orders; or
-- the unresolved mechanism for propagating authenticated `userId` to other
-  services.
+- verification of Identity-issued access tokens inside Tickets and Orders.
 
 Other services may use the stable user `id`, but must not read the Identity
 SQLite database or receive password hashes, raw passwords, challenge codes, or
-session tokens.
+refresh tokens.
 
 ## Runtime architecture
 
@@ -39,7 +41,7 @@ flowchart LR
     Express[Express 5 application]
     Routes[Route handlers]
     Schemas[Zod request schemas]
-    Repo[auth-repo.ts]
+    Repo[Model repositories]
     SQLite[(Identity SQLite database)]
     SMTP[SMTP / Mailpit]
     Errors[Error middleware]
@@ -70,7 +72,10 @@ The service is a Node.js 24 ESM application using:
 | `src/index.ts` | Builds the Express application, mounts routes and error middleware, and listens on the configured port. |
 | `src/routes/` | HTTP request validation, status codes, and response bodies. |
 | `src/routes/schemas.ts` | Shared Zod schemas for credentials, emails, and six-digit codes. |
-| `src/auth-repo.ts` | Account, challenge, and session business operations against Identity-owned storage. |
+| `src/repos/` | User, email-challenge, and refresh-token persistence. |
+| `src/access-token.ts` | JWT signing and verification. |
+| `src/authentication.ts` | Access-token and refresh-token orchestration. |
+| `src/refresh-token-cookie.ts` | Refresh-token cookie parsing and serialization. |
 | `src/database.ts` | SQLite connection, migration discovery, migration integrity checks, and startup migration execution. |
 | `src/email.ts` | SMTP configuration and challenge-email delivery. |
 | `src/error-handler.ts` | Typed expected HTTP errors and the fallback response for unexpected failures. |
@@ -82,8 +87,8 @@ Requests pass through the application in this order:
 
 1. `express.json({ limit: "16kb" })` parses JSON bodies.
 2. The matching route validates request data with Zod.
-3. The route calls `auth-repo.ts` for authoritative account, challenge, or
-   session changes.
+3. The route calls the relevant repository or token module for authoritative
+   changes.
 4. The route sends the success or expected business response.
 5. A thrown exception or rejected route promise is forwarded to the error
    middleware.
@@ -110,7 +115,7 @@ custom error contracts, serialization, and async propagation, read
 
 ## Public user contract
 
-No credential or session secret is returned as part of a user:
+No credential or refresh-token secret is returned as part of a user:
 
 ```ts
 type PublicUser = {
@@ -228,8 +233,8 @@ Request:
 ```
 
 The code must contain exactly six digits. A successful request atomically
-consumes the challenge, marks the email verified, creates a session, sets the
-session cookie, and returns `200`:
+consumes the challenge, marks the email verified, sets the refresh-token cookie,
+and returns a short-lived access token:
 
 ```json
 {
@@ -237,7 +242,10 @@ session cookie, and returns `200`:
     "id": "generated-uuid",
     "email": "person@example.com",
     "emailVerified": true
-  }
+  },
+  "accessToken": "<signed-jwt>",
+  "tokenType": "Bearer",
+  "expiresIn": 900
 }
 ```
 
@@ -301,7 +309,8 @@ Request:
 }
 ```
 
-Success: `200`, with the public user response and a new session cookie.
+Success: `200`, with the same access-token response as `/verify-email` and a new
+refresh-token cookie.
 
 Expected failures:
 
@@ -314,7 +323,13 @@ Expected failures:
 
 #### `GET /current-user`
 
-With a valid session:
+Send the access token as a Bearer credential:
+
+```text
+Authorization: Bearer <access-token>
+```
+
+Success: `200`.
 
 ```json
 {
@@ -326,26 +341,31 @@ With a valid session:
 }
 ```
 
-Without a valid session:
+A missing, malformed, expired, incorrectly signed, or wrongly scoped access
+token returns `401` with `WWW-Authenticate: Bearer`.
 
-```json
-{
-  "user": null
-}
-```
+### Refresh authentication
 
-Both cases return `200`.
+#### `POST /refresh`
+
+The browser sends the `HttpOnly` refresh-token cookie. A valid token is consumed
+once, replaced with a new refresh token, and returns a new access token using the
+same response shape as `/verify-email`.
+
+An invalid, expired, revoked, or replayed refresh token returns `401` and clears
+the cookie. Reuse of an already rotated token revokes its token family.
 
 ### Sign out
 
 #### `POST /signout`
 
-Revokes the presented server-side session when one exists and sends an expired
-session cookie. The operation is idempotent.
+Revokes the refresh-token family represented by the presented cookie and sends
+an expired refresh-token cookie. The operation is idempotent. Already-issued
+access tokens remain valid until their 15-minute expiration.
 
 Status: `204`, with no response body.
 
-## Account and session flows
+## Account and token flows
 
 ### Signup and verification
 
@@ -366,8 +386,8 @@ sequenceDiagram
     C->>I: POST /verify-email
     I->>D: Atomically consume challenge
     I->>D: Mark email verified
-    I->>D: Store hashed session token
-    I-->>C: 200 user + Set-Cookie
+    I->>D: Store hashed refresh token
+    I-->>C: 200 access token + refresh-token cookie
 ```
 
 ### Sign-in
@@ -387,8 +407,8 @@ sequenceDiagram
 
     C->>I: POST /signin/code
     I->>D: Atomically consume challenge
-    I->>D: Store hashed session token
-    I-->>C: 200 user + Set-Cookie
+    I->>D: Store hashed refresh token
+    I-->>C: 200 access token + refresh-token cookie
 ```
 
 ## Security behavior
@@ -426,23 +446,35 @@ rate limiter.
   concurrent requests cannot consume the same challenge twice.
 - A missing challenge still performs scrypt work to reduce timing differences.
 
-### Sessions
+### Access tokens
 
-- Session tokens contain 32 random bytes encoded with base64url.
+- Access tokens are signed JWTs using `HS256`.
+- Identity verifies the signature, algorithm, issuer, audience, type, and
+  expiration before trusting claims.
+- Tokens contain `sub`, `email`, and `emailVerified`; they contain no credentials
+  or other secrets.
+- Access tokens expire after 15 minutes and are sent by clients as
+  `Authorization: Bearer <access-token>`.
+- JWTs are signed, not encrypted. Anyone holding a token can decode its claims.
+
+### Refresh tokens
+
+- Refresh tokens contain 32 random bytes encoded with base64url.
 - Only a SHA-256 token hash is stored in SQLite.
-- Sessions expire after 24 hours.
-- Revocation sets `revoked_at`; it does not rely only on clearing the browser
-  cookie.
-- Expired sessions are deleted when a new session is created.
+- Refresh tokens expire after seven days.
+- Every successful refresh rotates the token, making the presented token
+  single-use.
+- Reuse of a rotated token revokes that token family.
+- Sign-out revokes the presented token family.
 
 The cookie is configured as:
 
 ```text
-session=<token>; HttpOnly; Path=/; SameSite=Lax; Max-Age=86400
+refreshToken=<token>; HttpOnly; Path=/; SameSite=Lax; Max-Age=604800
 ```
 
-`Secure` is added when `NODE_ENV=production`. JavaScript cannot read the cookie
-because it is `HttpOnly`.
+`Secure` is added when `NODE_ENV=production`. JavaScript cannot read the refresh
+token because the cookie is `HttpOnly`.
 
 ## Persistence and migrations
 
@@ -453,7 +485,7 @@ Identity exclusively owns its SQLite database.
 | Table | Purpose |
 |---|---|
 | `users` | Account identity, password hash, verification timestamp, and password lock state. |
-| `sessions` | Hashed session tokens, expiration, and revocation state. |
+| `refresh_tokens` | Hashed refresh tokens, rotation families, expiration, and revocation state. |
 | `email_challenges` | Hashed verification/sign-in challenges, purpose, expiry, use state, and failed attempts. |
 | `schema_migrations` | Applied migration version, filename, checksum, and application time. Created by the migration runner. |
 
@@ -462,7 +494,7 @@ Important constraints include:
 - `users.email` is unique;
 - challenge purpose is restricted to `verify_email` or `signin`;
 - only one unused challenge may exist per user and purpose; and
-- sessions and challenges reference their user with `ON DELETE CASCADE`.
+- refresh tokens and challenges reference their user with `ON DELETE CASCADE`.
 
 ### Migration rules
 
@@ -484,10 +516,11 @@ uses one Identity replica with one writable volume.
 |---|---|---|
 | `PORT` | `3001` | HTTP listen port. |
 | `IDENTITY_DB_PATH` | `auth/data/identity.sqlite` | SQLite database path. Use `:memory:` for an ephemeral manual run. |
+| `JWT_SECRET` | none; required | HMAC key used to sign and verify access tokens. Must contain at least 32 bytes. |
 | `SMTP_HOST` | `127.0.0.1` | SMTP host. Kubernetes uses `mailpit`. |
 | `SMTP_PORT` | `1025` | SMTP port. |
 | `EMAIL_FROM` | `StubHub Learning <identity@stubhub.local>` | Sender shown on challenge emails. |
-| `NODE_ENV` | unset | `production` adds `Secure` to the session cookie. |
+| `NODE_ENV` | unset | `production` adds `Secure` to the refresh-token cookie. |
 
 SMTP does not require TLS or configure authentication. With `secure: false`,
 Nodemailer may upgrade with STARTTLS when a server offers it, but encrypted
@@ -503,6 +536,9 @@ Install workspace dependencies:
 ```bash
 npm install
 ```
+
+Create `auth/.env` from `auth/.env.example` and replace its local-only
+`JWT_SECRET` before starting Identity.
 
 Run only Identity:
 
@@ -551,7 +587,7 @@ curl -i -X POST http://localhost:3001/signup \
 ```
 
 Read the verification code from Mailpit, verify the account, and save the
-session cookie:
+refresh-token cookie:
 
 ```bash
 curl -i -c auth.cookies -X POST http://localhost:3001/verify-email \
@@ -559,10 +595,17 @@ curl -i -c auth.cookies -X POST http://localhost:3001/verify-email \
   -d '{"email":"person@example.com","code":"123456"}'
 ```
 
-Read the current user:
+Copy `accessToken` from the JSON response, then read the current user:
 
 ```bash
-curl -i -b auth.cookies http://localhost:3001/current-user
+curl -i http://localhost:3001/current-user \
+  -H "Authorization: Bearer <access-token>"
+```
+
+Rotate the refresh token and receive a new access token:
+
+```bash
+curl -i -b auth.cookies -c auth.cookies -X POST http://localhost:3001/refresh
 ```
 
 Sign out:
@@ -591,14 +634,15 @@ The Kubernetes deployment:
 
 A valid image or Kubernetes manifest is not proof of a working deployment.
 Verify source/build checks separately from container, cluster, and end-to-end
-email/session journeys.
+email/token journeys.
 
 ## Current limitations and deliberate scope
-For a plain-language explanation of why each limit exists and when it matters,
-read [`LIMITATIONS.md`](./LIMITATIONS.md).
 
-- Authenticated identity propagation to Tickets and Orders is not implemented or
-  accepted yet.
+- Tickets and Orders do not yet verify Identity-issued access tokens.
+- Sign-out revokes refresh tokens, but an issued access token remains valid for
+  up to 15 minutes.
+- `HS256` gives every service holding `JWT_SECRET` the ability to sign tokens;
+  use asymmetric signing before verifier trust boundaries require separation.
 - Identity does not publish Redis Streams events.
 - The service has no CORS middleware or same-origin gateway. A browser client on
   another origin cannot directly make credentialed requests until that

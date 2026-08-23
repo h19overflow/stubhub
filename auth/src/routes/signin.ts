@@ -1,6 +1,7 @@
 import express from "express";
 import { consumeChallenge, issueChallenge } from "../repos/email-challenge-repo.js";
-import { createSession, sessionCookie } from "../repos/session-repo.js";
+import { createAuthentication } from "../authentication.js";
+import { refreshTokenCookie } from "../refresh-token-cookie.js";
 import { authenticateUser } from "../repos/user-repo.js";
 import { sendCode } from "../email.js";
 import { authRateLimit } from "../rate-limit.js";
@@ -55,9 +56,9 @@ router.post("/signin/code", async (request, response) => {
     return;
   }
 
-  const token = createSession(user.id);
-  response.setHeader("Set-Cookie", sessionCookie(token));
-  response.json({ user });
+  const authentication = await createAuthentication(user);
+  response.setHeader("Set-Cookie", refreshTokenCookie(authentication.refreshToken));
+  response.json(authentication.body);
 });
 
 export { router as signin };

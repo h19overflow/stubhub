@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "nodemon --watch src --watch migrations --ext ts,sql --exec \"npm run build && node dist/index.js\"",
+    "dev": "nodemon --watch src --watch migrations --ext ts,sql --exec \"npm run build && node --env-file-if-exists=.env dist/index.js\"",
     "build": "tsc -p tsconfig.json",
     "migrate": "npm run build && node dist/database.js",
-    "start": "node dist/index.js",
+    "start": "node --env-file-if-exists=.env dist/index.js",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "express": "^5.2.1",
+    "jose": "^6.2.10",
     "nodemailer": "^9.0.5",
     "zod": "^4.4.3"
   },

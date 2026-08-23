@@ -1,12 +1,15 @@
 # Identity Service Guidance
 
-This module owns accounts, credentials, email verification, sign-in codes, and browser sessions.
+This module owns accounts, credentials, email verification, sign-in codes, signed access tokens, and refresh tokens.
 
 ## Where things are
 
 - `src/index.ts`: Express startup and route registration.
 - `src/routes/`: signup, verification, sign-in, sign-out, and current-user routes.
-- `src/auth-repo.ts`: route-facing authentication and persistence functions.
+- `src/repos/`: user, email-challenge, and refresh-token persistence.
+- `src/access-token.ts`: JWT signing and verification.
+- `src/authentication.ts`: access-token and refresh-token orchestration.
+- `src/refresh-token-cookie.ts`: refresh-token cookie handling.
 - `src/database.ts`: SQLite connection and migration runner.
 - `src/email.ts`: Nodemailer SMTP delivery.
 - `migrations/`: numbered, forward-only SQL migrations.
@@ -14,12 +17,15 @@ This module owns accounts, credentials, email verification, sign-in codes, and b
 ## Current flow
 
 1. `/signup` creates an unverified user and emails a verification code.
-2. `/verify-email` verifies the code and creates a session.
+2. `/verify-email` verifies the code and issues an access token plus refresh token.
 3. `/signin` checks the password and emails a second sign-in code.
-4. `/signin/code` verifies that code and creates a session.
-5. `/signout` revokes the session; `/current-user` resolves it.
+4. `/signin/code` verifies that code and issues an access token plus refresh token.
+5. `/refresh` rotates the refresh token and issues a new access token.
+6. `/signout` revokes the refresh-token family; `/current-user` verifies the Bearer access token.
 
-Passwords and email codes use `scrypt`. Session cookies contain random opaque tokens; SQLite stores only their SHA-256 hashes.
+Passwords and email codes use `scrypt`. Access tokens are signed `HS256` JWTs.
+Refresh-token cookies contain random opaque tokens; SQLite stores only their
+SHA-256 hashes.
 
 ## SQLite rules
 
@@ -41,7 +47,7 @@ Mailpit receives local email on SMTP port `1025`; its inbox is forwarded to `htt
 
 ## Guardrails
 
-- Never log or return passwords, email codes, or raw session tokens.
+- Never log or return passwords, email codes, raw refresh tokens, or `JWT_SECRET`.
 - Keep generic invalid-credential responses.
 - Do not share the Identity database with Tickets or Orders.
 - Current gaps: durable email outbox, IP rate limiting, password reset, and TOTP.
