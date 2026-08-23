@@ -515,6 +515,86 @@ sequenceDiagram
     I-->>C: 200 access token + refresh-token cookie
 ```
 
+### Protected request
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant I as Identity route
+    participant J as JWT verifier
+
+    C->>I: GET /current-user<br/>Authorization: Bearer access-token
+    I->>J: Verify signature and claims
+    alt Token is valid
+        J-->>I: PublicUser claims
+        I-->>C: 200 user
+    else Token is missing, invalid, or expired
+        J-->>I: No authenticated user
+        I-->>C: 401 + WWW-Authenticate: Bearer
+    end
+```
+
+### Refresh rotation
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant I as Identity route
+    participant D as Identity SQLite
+    participant J as JWT signer
+
+    C->>I: POST /refresh<br/>Cookie: refreshToken=A
+    I->>D: Hash A and read refresh-token row
+    alt Token A is active
+        I->>D: Revoke A
+        I->>D: Insert replacement B in same family
+        I->>J: Sign new 15-minute access token
+        I-->>C: 200 access token<br/>Set-Cookie: refreshToken=B
+    else Token is missing, expired, or revoked
+        I-->>C: 401<br/>Clear refresh-token cookie
+    end
+```
+
+### Refresh-token replay detection
+
+```mermaid
+sequenceDiagram
+    participant C as Client or attacker
+    participant I as Identity route
+    participant D as Identity SQLite
+
+    Note over C,D: Token A was already rotated to token B
+    C->>I: POST /refresh<br/>Cookie: refreshToken=A
+    I->>D: Find revoked A with a replacement
+    I->>D: Revoke every token in A's family
+    I-->>C: 401<br/>Clear refresh-token cookie
+
+    C->>I: POST /refresh<br/>Cookie: refreshToken=B
+    I->>D: Find B revoked by family protection
+    I-->>C: 401<br/>Clear refresh-token cookie
+```
+
+### Sign-out
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant I as Identity route
+    participant D as Identity SQLite
+    participant J as JWT verifier
+
+    C->>I: POST /signout<br/>Cookie: refreshToken=B
+    I->>D: Find B's family
+    I->>D: Revoke every token in that family
+    I-->>C: 204<br/>Clear refresh-token cookie
+
+    Note over C,J: An already-issued access token remains valid until expiry
+    C->>I: Protected request with unexpired access token
+    I->>J: Verify signature and claims
+    J-->>I: Valid until exp
+    I-->>C: Protected response
+```
+
 ## Security behavior
 
 ### Passwords
