@@ -42,6 +42,7 @@ flowchart LR
     Routes[Route handlers]
     Schemas[Zod request schemas]
     Repo[Model repositories]
+    Tokens[JWT and refresh-token modules]
     SQLite[(Identity SQLite database)]
     SMTP[SMTP / Mailpit]
     Errors[Error middleware]
@@ -50,6 +51,8 @@ flowchart LR
     Express --> Routes
     Routes --> Schemas
     Routes --> Repo
+    Routes --> Tokens
+    Tokens --> Repo
     Repo --> SQLite
     Routes --> SMTP
     Routes -. thrown or rejected error .-> Errors
@@ -61,6 +64,7 @@ The service is a Node.js 24 ESM application using:
 
 - Express 5 for HTTP routing and middleware;
 - Zod for runtime request validation;
+- `jose` for JWT signing and standards-based claim verification;
 - Node's built-in `node:sqlite` driver;
 - Node's `crypto` module for scrypt, random values, and hashes; and
 - Nodemailer for SMTP delivery.
@@ -124,6 +128,106 @@ type PublicUser = {
   emailVerified: boolean;
 };
 ```
+
+## JWT authentication model
+
+Identity uses two credentials with different jobs:
+
+| Credential | Format | Delivered to the client | Used for | Lifetime |
+|---|---|---|---|---|
+| Access token | Signed JWT | JSON response body | `Authorization: Bearer <token>` on protected requests | 15 minutes |
+| Refresh token | Random opaque value | `HttpOnly` cookie | `/refresh` and `/signout` | 7 days |
+
+The access token is returned inside the authentication response:
+
+```json
+{
+  "user": {
+    "id": "generated-uuid",
+    "email": "person@example.com",
+    "emailVerified": true
+  },
+  "accessToken": "<signed-jwt>",
+  "tokenType": "Bearer",
+  "expiresIn": 900
+}
+```
+
+The refresh token is deliberately kept outside this JSON body. Identity sends
+it separately:
+
+```http
+Set-Cookie: refreshToken=<opaque-token>; HttpOnly; Path=/; SameSite=Lax; Max-Age=604800
+```
+
+Browser JavaScript can read the access token from the JSON response, but cannot
+read the `HttpOnly` refresh token. The browser stores that cookie and attaches
+it automatically to matching Identity requests. Although `Path=/` makes the
+cookie available to every Identity route, only `/refresh` and `/signout` use it.
+
+### Access-token verification
+
+A JWT is signed, not encrypted. Its claims can be decoded by anyone holding the
+token, so no password, refresh token, or other secret belongs in its payload.
+
+Identity does not compare an access token with a stored database copy. For a
+protected request, it:
+
+1. reads the `Authorization: Bearer <token>` header;
+2. verifies the `HS256` signature using `JWT_SECRET`;
+3. requires the expected algorithm, type, issuer, and audience;
+4. rejects an expired token; and
+5. validates the `sub`, `email`, and `emailVerified` claim types.
+
+Only after every check succeeds does the route treat the claims as an
+authenticated `PublicUser`. A missing, malformed, tampered, expired, or wrongly
+scoped token returns `401`.
+
+```text
+Client
+  └─ Authorization: Bearer <access-token>
+       └─ verify signature and claims
+            ├─ valid   → continue as authenticated user
+            └─ invalid → 401 Unauthorized
+```
+
+### Refresh rotation and token families
+
+SQLite stores only the SHA-256 hash of each refresh token. The raw value exists
+only in the browser cookie.
+
+One successful `/verify-email` or `/signin/code` authentication creates a new
+random `family_id`. That family represents that login and is preserved while
+the refresh token rotates:
+
+```text
+Successful login → token A → token B → token C
+                   family-1  family-1  family-1
+```
+
+Each successful `/refresh` request:
+
+1. hashes the presented cookie and finds the stored row;
+2. rejects expired or revoked tokens;
+3. revokes the presented token;
+4. inserts a random replacement in the same family;
+5. returns a new access token; and
+6. replaces the refresh-token cookie.
+
+The presented refresh token is therefore single-use. Reusing an already rotated
+token indicates possible theft, so Identity revokes the entire family,
+including its newest replacement.
+
+A separate login creates a separate family. Signing out revokes only the family
+identified by the presented refresh token. It does not sign the user out of
+other independently authenticated devices.
+
+### Sign-out limitation
+
+`POST /signout` revokes the refresh-token family and clears the cookie. Access
+JWTs are stateless, so an access token already issued before sign-out remains
+valid until its 15-minute expiration.
+
 
 ## API reference
 
