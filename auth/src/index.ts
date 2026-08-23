@@ -1,4 +1,5 @@
 import express from "express";
+import { errorHandler } from "./error-handler.js";
 import { currentUser } from "./routes/current-user.js";
 import { signin } from "./routes/signin.js";
 import { signout } from "./routes/signout.js";
@@ -16,6 +17,8 @@ app.get("/health", (_request, response) => {
 });
 
 app.use(currentUser, signin, signout, signup, verifyEmail);
+// Error middleware belongs after every route so thrown route errors reach it.
+app.use(errorHandler);
 app.listen(port, "0.0.0.0", () => {
   console.log(`Identity service listening on port ${port}`);
 });
