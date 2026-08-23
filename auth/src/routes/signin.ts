@@ -1,11 +1,7 @@
 import express from "express";
-import {
-  authenticateUser,
-  consumeChallenge,
-  createSession,
-  issueChallenge,
-  sessionCookie,
-} from "../auth-repo.js";
+import { consumeChallenge, issueChallenge } from "../repos/email-challenge-repo.js";
+import { createSession, sessionCookie } from "../repos/session-repo.js";
+import { authenticateUser } from "../repos/user-repo.js";
 import { sendCode } from "../email.js";
 import { authRateLimit } from "../rate-limit.js";
 import { credentialsSchema, emailCodeSchema } from "./schemas.js";

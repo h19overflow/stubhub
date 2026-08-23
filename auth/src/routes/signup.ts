@@ -1,6 +1,7 @@
 import express from "express";
 import { HttpError } from "../error-handler.js";
-import { createUser, issueChallenge } from "../auth-repo.js";
+import { issueChallenge } from "../repos/email-challenge-repo.js";
+import { createUser } from "../repos/user-repo.js";
 import { sendCode } from "../email.js";
 import { authRateLimit } from "../rate-limit.js";
 import { credentialsSchema } from "./schemas.js";

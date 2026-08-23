@@ -1,5 +1,5 @@
 import express from "express";
-import { clearSessionCookie, revokeSession } from "../auth-repo.js";
+import { clearSessionCookie, revokeSession } from "../repos/session-repo.js";
 
 const router = express.Router();
 

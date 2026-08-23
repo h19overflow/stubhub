@@ -1,5 +1,5 @@
 import express from "express";
-import { currentUser } from "../auth-repo.js";
+import { currentUser } from "../repos/session-repo.js";
 
 const router = express.Router();
 
