@@ -7,11 +7,12 @@ import {
   sessionCookie,
 } from "../auth-repo.js";
 import { sendCode } from "../email.js";
+import { authRateLimit } from "../rate-limit.js";
 import { credentialsSchema, emailCodeSchema } from "./schemas.js";
 
 const router = express.Router();
 
-router.post("/signin", async (request, response) => {
+router.post("/signin", authRateLimit, async (request, response) => {
   const credentials = credentialsSchema.safeParse(request.body);
   if (!credentials.success) {
     response.status(400).json({ error: "A valid email and password of 8 to 256 characters are required" });

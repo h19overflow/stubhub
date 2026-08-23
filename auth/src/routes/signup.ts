@@ -2,11 +2,12 @@ import express from "express";
 import { HttpError } from "../error-handler.js";
 import { createUser, issueChallenge } from "../auth-repo.js";
 import { sendCode } from "../email.js";
+import { authRateLimit } from "../rate-limit.js";
 import { credentialsSchema } from "./schemas.js";
 
 const router = express.Router();
 
-router.post("/signup", async (request, response) => {
+router.post("/signup", authRateLimit, async (request, response) => {
   const result = credentialsSchema.safeParse(request.body);
   if (!result.success) {
     // Express 5 catches this throw, including inside an async route, and calls errorHandler.

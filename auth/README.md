@@ -104,6 +104,10 @@ returned as:
 
 Expected route errors use the same `{ "error": string }` response shape.
 
+For a structured explanation of request-validation errors, database errors,
+custom error contracts, serialization, and async propagation, read
+[`ERROR_HANDLING_WALKTHROUGH.md`](./ERROR_HANDLING_WALKTHROUGH.md).
+
 ## Public user contract
 
 No credential or session secret is returned as part of a user:
