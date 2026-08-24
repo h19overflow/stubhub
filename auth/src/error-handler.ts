@@ -19,6 +19,12 @@ const errorHandler: ErrorRequestHandler = (error, _request, response, next) => {
     return;
   }
 
+  const parserError = error as { status?: unknown; type?: unknown };
+  if (parserError.status === 400 && parserError.type === "entity.parse.failed") {
+    response.status(400).json({ error: "Malformed JSON body" });
+    return;
+  }
+
   // Expected route error: expose the status and deliberately client-safe message.
   if (error instanceof HttpError) {
     response.status(error.status).json({ error: error.message });

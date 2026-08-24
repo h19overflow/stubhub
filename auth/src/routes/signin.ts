@@ -43,7 +43,7 @@ router.post("/signin", authRateLimit, async (request, response) => {
   response.status(202).json({ codeRequired: true });
 });
 
-router.post("/signin/code", async (request, response) => {
+router.post("/signin/code", authRateLimit, async (request, response) => {
   const input = emailCodeSchema.safeParse(request.body);
   if (!input.success) {
     response.status(400).json({ error: "A valid email and six-digit code are required" });
