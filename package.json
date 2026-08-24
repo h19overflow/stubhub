@@ -5,6 +5,7 @@
     "client",
     "auth",
     "tickets",
+    "event-bus",
     "orders"
   ],
   "scripts": {

@@ -3,6 +3,7 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY --chown=1000:1000 client/package.json ./client/package.json
+COPY --chown=1000:1000 event-bus/package.json ./event-bus/package.json
 COPY --chown=1000:1000 auth/package.json ./auth/package.json
 COPY --chown=1000:1000 tickets/package.json ./tickets/package.json
 COPY --chown=1000:1000 orders/package.json ./orders/package.json
