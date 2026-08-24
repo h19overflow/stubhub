@@ -11,6 +11,7 @@ type RefreshTokenRow = {
   replaced_by_token_hash: string | null;
   email: string;
   email_verified_at: number | null;
+  role: PublicUser["role"];
 };
 type RefreshResult = { refreshToken: string; user: PublicUser };
 
@@ -58,7 +59,8 @@ function rotateRefreshToken(rawToken: string): RefreshResult | null {
         refresh_tokens.revoked_at,
         refresh_tokens.replaced_by_token_hash,
         users.email,
-        users.email_verified_at
+        users.email_verified_at,
+        users.role
       FROM refresh_tokens
       JOIN users ON users.id = refresh_tokens.user_id
       WHERE refresh_tokens.token_hash = ?
@@ -107,6 +109,7 @@ function rotateRefreshToken(rawToken: string): RefreshResult | null {
         id: row.user_id,
         email: row.email,
         emailVerified: row.email_verified_at !== null,
+        role: row.role,
       },
     };
   } catch (error) {

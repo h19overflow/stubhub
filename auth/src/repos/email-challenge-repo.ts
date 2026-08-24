@@ -12,6 +12,7 @@ type ChallengeRow = {
   failed_attempts: number;
   email: string;
   email_verified_at: number | null;
+  role: PublicUser["role"];
 };
 
 const CHALLENGE_TTL_MS = 10 * 60 * 1_000;
@@ -69,7 +70,8 @@ async function consumeChallenge(
       email_challenges.expires_at,
       email_challenges.failed_attempts,
       users.email,
-      users.email_verified_at
+      users.email_verified_at,
+      users.role
     FROM email_challenges
     JOIN users ON users.id = email_challenges.user_id
     WHERE users.email = ?
@@ -116,7 +118,12 @@ async function consumeChallenge(
       `).run(now, row.user_id);
     }
     database.exec("COMMIT");
-    return { id: row.user_id, email: row.email, emailVerified: true };
+    return {
+      id: row.user_id,
+      email: row.email,
+      emailVerified: true,
+      role: row.role,
+    };
   } catch (error) {
     database.exec("ROLLBACK");
     throw error;

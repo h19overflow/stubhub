@@ -3,12 +3,14 @@ import { database } from "../database.js";
 import { dummySecretCheck, hashSecret, secretMatches } from "../secret.js";
 
 type Credentials = { email: string; password: string };
-type PublicUser = { id: string; email: string; emailVerified: boolean };
+type UserRole = "user" | "admin";
+type PublicUser = { id: string; email: string; emailVerified: boolean; role: UserRole };
 type UserRow = {
   id: string;
   email: string;
   password_hash: string;
   email_verified_at: number | null;
+  role: UserRole;
   failed_signin_attempts: number;
   signin_locked_until: number | null;
 };
@@ -20,14 +22,23 @@ type AuthenticationResult =
 
 const SIGNIN_LOCK_MS = 5 * 60 * 1_000;
 
-function publicUser(row: Pick<UserRow, "id" | "email" | "email_verified_at">): PublicUser {
-  return { id: row.id, email: row.email, emailVerified: row.email_verified_at !== null };
+function publicUser(
+  row: Pick<UserRow, "id" | "email" | "email_verified_at" | "role">,
+): PublicUser {
+  return {
+    id: row.id,
+    email: row.email,
+    emailVerified: row.email_verified_at !== null,
+    role: row.role,
+  };
 }
 
 function findUserByEmail(email: string): PublicUser | null {
   const row = database.prepare(
-    "SELECT id, email, email_verified_at FROM users WHERE email = ?",
-  ).get(email) as Pick<UserRow, "id" | "email" | "email_verified_at"> | undefined;
+    "SELECT id, email, email_verified_at, role FROM users WHERE email = ?",
+  ).get(email) as
+    | Pick<UserRow, "id" | "email" | "email_verified_at" | "role">
+    | undefined;
   return row ? publicUser(row) : null;
 }
 
@@ -45,7 +56,7 @@ async function createUser(credentials: Credentials): Promise<PublicUser | null> 
       INSERT INTO users (id, email, password_hash, created_at)
       VALUES (?, ?, ?, ?)
     `).run(user.id, user.email, user.passwordHash, now);
-    return { id: user.id, email: user.email, emailVerified: false };
+    return { id: user.id, email: user.email, emailVerified: false, role: "user" };
   } catch (error) {
     if (String(error).includes("UNIQUE constraint failed: users.email")) return null;
     throw error;
@@ -54,7 +65,9 @@ async function createUser(credentials: Credentials): Promise<PublicUser | null> 
 
 async function authenticateUser(credentials: Credentials): Promise<AuthenticationResult> {
   const row = database.prepare(`
-    SELECT id, email, password_hash, email_verified_at, failed_signin_attempts, signin_locked_until
+    SELECT
+      id, email, password_hash, email_verified_at, role,
+      failed_signin_attempts, signin_locked_until
     FROM users
     WHERE email = ?
   `).get(credentials.email) as UserRow | undefined;

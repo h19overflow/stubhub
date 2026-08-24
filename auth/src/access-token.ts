@@ -13,6 +13,7 @@ const accessTokenClaimsSchema = z.object({
   sub: z.uuid(),
   email: z.email(),
   emailVerified: z.boolean(),
+  role: z.enum(["user", "admin"]),
 });
 
 function readBearerToken(authorizationHeader: string | undefined): string | null {
@@ -22,7 +23,11 @@ function readBearerToken(authorizationHeader: string | undefined): string | null
 
 async function createAccessToken(user: PublicUser): Promise<string> {
   // A JWT is signed, not encrypted. Keep credentials and other secrets out of its claims.
-  return new SignJWT({ email: user.email, emailVerified: user.emailVerified })
+  return new SignJWT({
+    email: user.email,
+    emailVerified: user.emailVerified,
+    role: user.role,
+  })
     .setProtectedHeader({ alg: JWT_ALGORITHM, typ: "JWT" })
     .setIssuer(JWT_ISSUER)
     .setAudience(JWT_AUDIENCE)
@@ -51,6 +56,7 @@ async function verifyAccessToken(
       id: claims.data.sub,
       email: claims.data.email,
       emailVerified: claims.data.emailVerified,
+      role: claims.data.role,
     };
   } catch {
     return null;
