@@ -3,8 +3,8 @@ import { ACCESS_TOKEN_TTL_SECONDS } from "./token-config.js";
 import {
   createRefreshToken,
   rotateRefreshToken,
-} from "./repos/refresh-token-repo.js";
-import type { PublicUser } from "./repos/user-repo.js";
+} from "./refresh-token-repo.js";
+import type { PublicUser } from "../users/user.js";
 
 type AuthenticationBody = {
   user: PublicUser;

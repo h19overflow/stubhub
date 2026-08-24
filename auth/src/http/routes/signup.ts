@@ -1,10 +1,10 @@
 import express from "express";
 import { HttpError } from "../error-handler.js";
-import { issueChallenge } from "../repos/email-challenge-repo.js";
-import { createUser } from "../repos/user-repo.js";
-import { sendCode } from "../email.js";
+import { issueChallenge } from "../../challenges/email-challenge-repo.js";
+import { createUser } from "../../users/user-repo.js";
+import { sendCode } from "../../email/challenge-email.js";
 import { authRateLimit } from "../rate-limit.js";
-import { credentialsSchema } from "./schemas.js";
+import { credentialsSchema } from "../schemas.js";
 
 const router = express.Router();
 

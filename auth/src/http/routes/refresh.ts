@@ -1,10 +1,10 @@
 import express from "express";
-import { refreshAuthentication } from "../authentication.js";
+import { refreshAuthentication } from "../../tokens/authentication.js";
 import {
   clearRefreshTokenCookie,
   readRefreshToken,
   refreshTokenCookie,
-} from "../refresh-token-cookie.js";
+} from "../../tokens/refresh-token-cookie.js";
 
 const router = express.Router();
 

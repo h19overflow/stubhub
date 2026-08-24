@@ -74,15 +74,13 @@ The service is a Node.js 24 ESM application using:
 | Path | Responsibility |
 |---|---|
 | `src/index.ts` | Builds the Express application, mounts routes and error middleware, and listens on the configured port. |
-| `src/routes/` | HTTP request validation, status codes, and response bodies. |
-| `src/routes/schemas.ts` | Shared Zod schemas for credentials, emails, and six-digit codes. |
-| `src/repos/` | User, email-challenge, and refresh-token persistence. |
-| `src/access-token.ts` | JWT signing and verification. |
-| `src/authentication.ts` | Access-token and refresh-token orchestration. |
-| `src/refresh-token-cookie.ts` | Refresh-token cookie parsing and serialization. |
+| `src/http/` | HTTP routes, Zod request schemas, rate limiting, and centralized error handling. |
+| `src/users/` | Public user contract and SQLite user persistence. |
+| `src/challenges/` | Challenge contract and SQLite email-challenge persistence. |
+| `src/tokens/` | JWTs, refresh-token persistence and cookies, and authentication orchestration. |
+| `src/email/` | SMTP configuration and challenge-email delivery. |
+| `src/security/` | Password and challenge-secret hashing and comparison. |
 | `src/database.ts` | SQLite connection, migration discovery, migration integrity checks, and startup migration execution. |
-| `src/email.ts` | SMTP configuration and challenge-email delivery. |
-| `src/error-handler.ts` | Typed expected HTTP errors and the fallback response for unexpected failures. |
 | `migrations/` | Ordered, immutable SQL migrations. |
 
 ## HTTP pipeline

@@ -7,7 +7,7 @@ import {
   JWT_ISSUER,
   JWT_SECRET,
 } from "./token-config.js";
-import type { PublicUser } from "./repos/user-repo.js";
+import type { PublicUser } from "../users/user.js";
 
 const accessTokenClaimsSchema = z.object({
   sub: z.uuid(),

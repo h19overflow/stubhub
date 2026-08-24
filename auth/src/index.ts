@@ -1,11 +1,11 @@
 import express from "express";
-import { errorHandler } from "./error-handler.js";
-import { currentUser } from "./routes/current-user.js";
-import { refresh } from "./routes/refresh.js";
-import { signin } from "./routes/signin.js";
-import { signout } from "./routes/signout.js";
-import { signup } from "./routes/signup.js";
-import { verifyEmail } from "./routes/verify-email.js";
+import { errorHandler } from "./http/error-handler.js";
+import { currentUser } from "./http/routes/current-user.js";
+import { refresh } from "./http/routes/refresh.js";
+import { signin } from "./http/routes/signin.js";
+import { signout } from "./http/routes/signout.js";
+import { signup } from "./http/routes/signup.js";
+import { verifyEmail } from "./http/routes/verify-email.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);

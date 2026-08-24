@@ -1,10 +1,10 @@
 import express from "express";
-import { consumeChallenge, issueChallenge } from "../repos/email-challenge-repo.js";
-import { createAuthentication } from "../authentication.js";
-import { refreshTokenCookie } from "../refresh-token-cookie.js";
-import { findUserByEmail } from "../repos/user-repo.js";
-import { sendCode } from "../email.js";
-import { emailCodeSchema, emailSchema } from "./schemas.js";
+import { consumeChallenge, issueChallenge } from "../../challenges/email-challenge-repo.js";
+import { createAuthentication } from "../../tokens/authentication.js";
+import { refreshTokenCookie } from "../../tokens/refresh-token-cookie.js";
+import { findUserByEmail } from "../../users/user-repo.js";
+import { sendCode } from "../../email/challenge-email.js";
+import { emailCodeSchema, emailSchema } from "../schemas.js";
 
 const router = express.Router();
 

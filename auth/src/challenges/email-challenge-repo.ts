@@ -1,8 +1,8 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { database } from "../database.js";
-import type { ChallengePurpose } from "../email.js";
-import { dummySecretCheck, hashSecret, secretMatches } from "../secret.js";
-import type { PublicUser } from "./user-repo.js";
+import type { ChallengePurpose } from "./challenge.js";
+import { dummySecretCheck, hashSecret, secretMatches } from "../security/secret.js";
+import type { PublicUser } from "../users/user.js";
 
 type ChallengeRow = {
   id: string;

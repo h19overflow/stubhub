@@ -1,5 +1,5 @@
 import express from "express";
-import { verifyAccessToken } from "../access-token.js";
+import { verifyAccessToken } from "../../tokens/access-token.js";
 
 const router = express.Router();
 

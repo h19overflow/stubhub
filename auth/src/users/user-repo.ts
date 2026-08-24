@@ -1,10 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { database } from "../database.js";
-import { dummySecretCheck, hashSecret, secretMatches } from "../secret.js";
+import { dummySecretCheck, hashSecret, secretMatches } from "../security/secret.js";
+import type { PublicUser, UserRole } from "./user.js";
 
 type Credentials = { email: string; password: string };
-type UserRole = "user" | "admin";
-type PublicUser = { id: string; email: string; emailVerified: boolean; role: UserRole };
 type UserRow = {
   id: string;
   email: string;
@@ -105,4 +104,3 @@ async function authenticateUser(credentials: Credentials): Promise<Authenticatio
 }
 
 export { authenticateUser, createUser, findUserByEmail };
-export type { PublicUser };

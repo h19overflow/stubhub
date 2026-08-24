@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { database } from "../database.js";
-import { REFRESH_TOKEN_TTL_MS } from "../token-config.js";
-import type { PublicUser } from "./user-repo.js";
+import { REFRESH_TOKEN_TTL_MS } from "./token-config.js";
+import type { PublicUser } from "../users/user.js";
 
 type RefreshTokenRow = {
   family_id: string;

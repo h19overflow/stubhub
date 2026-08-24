@@ -2,8 +2,8 @@ import express from "express";
 import {
   clearRefreshTokenCookie,
   readRefreshToken,
-} from "../refresh-token-cookie.js";
-import { revokeRefreshToken } from "../repos/refresh-token-repo.js";
+} from "../../tokens/refresh-token-cookie.js";
+import { revokeRefreshToken } from "../../tokens/refresh-token-repo.js";
 
 const router = express.Router();
 

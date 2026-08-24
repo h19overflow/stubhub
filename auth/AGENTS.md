@@ -5,13 +5,13 @@ This module owns accounts, credentials, email verification, sign-in codes, signe
 ## Where things are
 
 - `src/index.ts`: Express startup and route registration.
-- `src/routes/`: signup, verification, sign-in, sign-out, and current-user routes.
-- `src/repos/`: user, email-challenge, and refresh-token persistence.
-- `src/access-token.ts`: JWT signing and verification.
-- `src/authentication.ts`: access-token and refresh-token orchestration.
-- `src/refresh-token-cookie.ts`: refresh-token cookie handling.
+- `src/http/`: routes, request schemas, rate limiting, and error middleware.
+- `src/users/`: public user contract and SQLite user repository.
+- `src/challenges/`: challenge contract and SQLite email-challenge repository.
+- `src/tokens/`: access tokens, refresh tokens, cookies, and authentication orchestration.
+- `src/email/`: Nodemailer challenge delivery.
+- `src/security/`: password and challenge-secret hashing.
 - `src/database.ts`: SQLite connection and migration runner.
-- `src/email.ts`: Nodemailer SMTP delivery.
 - `migrations/`: numbered, forward-only SQL migrations.
 
 ## Current flow

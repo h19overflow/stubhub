@@ -1,6 +1,5 @@
 import nodemailer from "nodemailer";
-
-type ChallengePurpose = "verify_email" | "signin";
+import type { ChallengePurpose } from "../challenges/challenge.js";
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST ?? "127.0.0.1",
@@ -18,4 +17,4 @@ async function sendCode(email: string, purpose: ChallengePurpose, code: string):
   });
 }
 
-export { sendCode, type ChallengePurpose };
+export { sendCode };
