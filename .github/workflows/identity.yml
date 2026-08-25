@@ -1,0 +1,126 @@
+name: Identity
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck workspaces
+        run: npm run typecheck
+
+      - name: Build workspaces
+        run: npm run build
+
+      - name: Check push gate
+        run: npm run check:push
+
+      - name: Build identity production image
+        run: docker build --target identity --tag stubhub-identity:ci .
+
+      - name: Smoke identity production image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          container="stubhub-identity-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          db_path="/tmp/identity-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sqlite"
+          failed=0
+
+          secret_error="JWT_SECRET must contain at least 32 bytes"
+
+          expect_bad_config() {
+            name="$1"
+            bad_container="$2"
+            shift 2
+
+            set +e
+            output="$(timeout 20s docker run --rm --name "$bad_container" "$@" stubhub-identity:ci 2>&1)"
+            status=$?
+            set -e
+            docker rm -f "$bad_container" >/dev/null 2>&1 || true
+
+            if [ "$status" -eq 0 ]; then
+              echo "$name configuration started successfully"
+              echo "$output"
+              exit 1
+            fi
+
+            if [ "$status" -eq 124 ]; then
+              echo "$name configuration did not exit within 20 seconds"
+              echo "$output"
+              exit 1
+            fi
+
+            if [[ "$output" != *"$secret_error"* ]]; then
+              echo "$name configuration did not log expected diagnostic"
+              echo "$output"
+              exit 1
+            fi
+          }
+
+          cleanup() {
+            status=$?
+            if [ "$status" -ne 0 ] || [ "$failed" -ne 0 ]; then
+              docker logs "$container" || true
+            fi
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          expect_bad_config "missing JWT_SECRET" "stubhub-identity-missing-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --env IDENTITY_DB_PATH="/tmp/identity-ci-missing-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sqlite"
+
+          expect_bad_config "short JWT_SECRET" "stubhub-identity-short-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --env JWT_SECRET=short \
+            --env IDENTITY_DB_PATH="/tmp/identity-ci-short-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sqlite"
+
+          docker run --detach \
+            --name "$container" \
+            --publish 3001:3001 \
+            --env JWT_SECRET=identity-ci-jwt-secret-32-bytes-minimum \
+            --env IDENTITY_DB_PATH="$db_path" \
+            stubhub-identity:ci
+
+          for attempt in {1..45}; do
+            health="$(docker inspect --format '{{.State.Health.Status}}' "$container")"
+            if [ "$health" = "healthy" ]; then
+              break
+            fi
+            if [ "$health" = "unhealthy" ]; then
+              failed=1
+              exit 1
+            fi
+            sleep 2
+          done
+
+          test "$(docker inspect --format '{{.State.Health.Status}}' "$container")" = "healthy"
+
+          node --input-type=module <<'NODE'
+          const health = await fetch('http://127.0.0.1:3001/health');
+          if (!health.ok) throw new Error(`/health returned ${health.status}`);
+
+          const currentUser = await fetch('http://127.0.0.1:3001/current-user');
+          if (currentUser.status !== 401) {
+            throw new Error(`/current-user without credentials returned ${currentUser.status}`);
+          }
+          NODE

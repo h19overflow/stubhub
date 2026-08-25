@@ -19,7 +19,9 @@
     "dev:tickets": "npm run dev --workspace @stubhub/tickets",
     "dev:orders": "npm run dev --workspace @stubhub/orders",
     "build": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "check:commit": "npm run check:commit --workspace @stubhub/identity",
+    "check:push": "npm run check:push --workspace @stubhub/identity"
   },
   "engines": {
     "node": ">=24"

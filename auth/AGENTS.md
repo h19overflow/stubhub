@@ -4,7 +4,8 @@ This module owns accounts, credentials, email verification, sign-in codes, signe
 
 ## Where things are
 
-- `src/index.ts`: Express startup and route registration.
+- `src/app.ts`: Express configuration and route registration.
+- `src/index.ts`: process startup and HTTP listener.
 - `src/http/`: routes, request schemas, rate limiting, and error middleware.
 - `src/users/`: public user contract and SQLite user repository.
 - `src/challenges/`: challenge contract and SQLite email-challenge repository.
@@ -41,6 +42,7 @@ SHA-256 hashes.
 npm run build --workspace @stubhub/identity
 npm run migrate --workspace @stubhub/identity
 npm run dev:identity
+npm test --workspace @stubhub/identity
 ```
 
 Mailpit receives local email on SMTP port `1025`; its inbox is forwarded to `http://localhost:8025` by Skaffold.

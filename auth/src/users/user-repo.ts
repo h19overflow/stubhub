@@ -83,13 +83,15 @@ async function authenticateUser(credentials: Credentials): Promise<Authenticatio
   }
 
   if (!(await secretMatches(credentials.password, row.password_hash))) {
-    const attempts = row.failed_signin_attempts + 1;
     database.prepare(`
       UPDATE users
-      SET failed_signin_attempts = ?,
-          signin_locked_until = ?
+      SET failed_signin_attempts = failed_signin_attempts + 1,
+          signin_locked_until = CASE
+            WHEN failed_signin_attempts + 1 >= 5 THEN ?
+            ELSE NULL
+          END
       WHERE id = ?
-    `).run(attempts, attempts >= 5 ? now + SIGNIN_LOCK_MS : null, row.id);
+    `).run(now + SIGNIN_LOCK_MS, row.id);
     return { status: "invalid" };
   }
 
