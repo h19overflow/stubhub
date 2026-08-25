@@ -69,7 +69,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 COPY --from=client-prod-deps /app/node_modules ./node_modules
 COPY --from=client-build /app/client/package.json ./client/package.json
-COPY --from=client-build /app/client/.next ./client/.next
+COPY --from=client-build --chown=node:node /app/client/.next ./client/.next
 WORKDIR /app/client
 USER 1000:1000
 EXPOSE 3000

@@ -13,8 +13,12 @@ build:
         target: client-dev
       sync:
         manual:
-          - src: "client/app/**/*"
-            dest: /app/client/app
+          - src: "client/pages/**/*"
+            dest: /app/client/pages
+          - src: "client/components/**/*"
+            dest: /app/client/components
+          - src: "client/features/**/*"
+            dest: /app/client/features
     - image: stubhub-identity
       context: .
       docker:
