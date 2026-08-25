@@ -1,0 +1,324 @@
+.main {
+  width: min(1280px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 1rem 0 6rem;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(21rem, 0.68fr);
+  gap: 1rem;
+}
+
+.heroCopy,
+.spotlightShell {
+  min-height: 30rem;
+  border-radius: 22px;
+}
+
+.heroCopy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: clamp(2.5rem, 6vw, 5rem);
+  overflow: hidden;
+  background: linear-gradient(155deg, #303030, #181818 68%);
+  box-shadow: rgba(0, 0, 0, 0.48) 0 18px 52px;
+  animation: surfaceEnter 950ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.heroCopy h1 {
+  max-width: 12ch;
+  margin: 0;
+  color: #fff;
+  font-size: clamp(2.75rem, 7vw, 5.5rem);
+  font-weight: 700;
+  letter-spacing: -0.06em;
+  line-height: 0.96;
+}
+
+.eyebrow {
+  margin: 0 0 0.75rem;
+  color: #b3b3b3;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.lead {
+  max-width: 36rem;
+  margin: 1.4rem 0 2rem;
+  color: #b3b3b3;
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.primaryLink {
+  display: inline-flex;
+  min-height: 3.35rem;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.55rem 0.55rem 0.55rem 1.5rem;
+  border-radius: 9999px;
+  background: #1ed760;
+  color: #000;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08rem;
+  text-decoration: none;
+  text-transform: uppercase;
+  box-shadow: rgba(0, 0, 0, 0.3) 0 10px 26px;
+  transition: transform 520ms cubic-bezier(0.32, 0.72, 0, 1), background-color 520ms cubic-bezier(0.32, 0.72, 0, 1), box-shadow 520ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.primaryLink span {
+  display: grid;
+  width: 2.15rem;
+  height: 2.15rem;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 12%);
+  transition: transform 520ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.primaryLink:hover {
+  background: #3be477;
+  box-shadow: rgba(0, 0, 0, 0.46) 0 14px 34px;
+  transform: translateY(-2px) scale(1.015);
+}
+
+.primaryLink:hover span {
+  transform: translate(2px, 2px);
+}
+
+.spotlightShell,
+.eventShell {
+  background: #181818;
+  box-shadow: rgba(0, 0, 0, 0.42) 0 16px 42px;
+}
+
+.spotlightShell {
+  overflow: hidden;
+  animation: surfaceEnter 950ms 140ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.spotlight {
+  display: flex;
+  min-height: 30rem;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(2rem, 5vw, 3.5rem);
+  border-radius: 22px;
+  background: linear-gradient(145deg, #763f37, #34201e 75%);
+  color: #fff;
+  transition: transform 900ms cubic-bezier(0.32, 0.72, 0, 1), filter 900ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.spotlightShell:hover .spotlight {
+  transform: scale(1.018);
+  filter: brightness(1.06);
+}
+
+.spotlight p,
+.spotlight span {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.spotlight h2 {
+  max-width: 12ch;
+  margin: 0.7rem 0 0;
+  font-size: clamp(1.9rem, 4vw, 3rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.08;
+}
+
+.market,
+.utilityGrid {
+  margin-top: 1rem;
+  padding: clamp(2rem, 5vw, 3.5rem);
+  border-radius: 22px;
+  background: #181818;
+  box-shadow: rgba(0, 0, 0, 0.38) 0 16px 42px;
+}
+
+.market {
+  animation: surfaceEnter 950ms 240ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.sectionHeading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 3rem;
+}
+
+.sectionHeading h2,
+.utilityGrid h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 1.65rem;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+}
+
+.sectionHeading > p {
+  max-width: 24rem;
+  margin: 0;
+  color: #b3b3b3;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.eventGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+  margin-top: 2.25rem;
+}
+
+.eventShell {
+  padding: 0.8rem;
+  border-radius: 16px;
+  transition: background-color 650ms cubic-bezier(0.32, 0.72, 0, 1), transform 650ms cubic-bezier(0.32, 0.72, 0, 1), box-shadow 650ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.eventShell:hover {
+  background: #252525;
+  box-shadow: rgba(0, 0, 0, 0.55) 0 22px 54px;
+  transform: translateY(-6px);
+}
+
+.eventCard {
+  display: flex;
+  min-height: 17rem;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.6rem;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #454545, #252525);
+}
+
+.eventShell:nth-child(2) .eventCard {
+  background: linear-gradient(145deg, #34516c, #1d2d3a);
+}
+
+.eventCard > span,
+.eventCard p {
+  margin: 0;
+  color: #cbcbcb;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.eventCard h3 {
+  margin: 0.4rem 0;
+  color: #fff;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.utilityGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  animation: surfaceEnter 950ms 340ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.utilityGrid article {
+  min-height: 15rem;
+  padding: 2rem;
+  border-radius: 16px;
+  background: #252525;
+  transition: background-color 650ms cubic-bezier(0.32, 0.72, 0, 1), transform 650ms cubic-bezier(0.32, 0.72, 0, 1), box-shadow 650ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.utilityGrid article:hover {
+  background: #2b2b2b;
+  box-shadow: rgba(0, 0, 0, 0.42) 0 18px 44px;
+  transform: translateY(-4px);
+}
+
+.utilityGrid h2 {
+  max-width: 18ch;
+}
+
+.utilityGrid a,
+.utilityGrid span {
+  display: inline-block;
+  margin-top: 2rem;
+  color: #b3b3b3;
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition: color 420ms cubic-bezier(0.32, 0.72, 0, 1), transform 420ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.utilityGrid a:hover {
+  color: #fff;
+  transform: translateX(3px);
+}
+
+@keyframes surfaceEnter {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 768px) {
+  .main {
+    width: min(100% - 1rem, 42rem);
+    padding-top: 0.5rem;
+  }
+
+  .hero,
+  .eventGrid,
+  .utilityGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .sectionHeading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 425px) {
+  .heroCopy,
+  .spotlightShell,
+  .spotlight {
+    min-height: 23rem;
+    border-radius: 18px;
+  }
+
+  .heroCopy,
+  .market,
+  .utilityGrid {
+    padding: 1.5rem;
+    border-radius: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heroCopy,
+  .spotlightShell,
+  .spotlight,
+  .primaryLink,
+  .primaryLink span,
+  .market,
+  .eventShell,
+  .utilityGrid,
+  .utilityGrid article,
+  .utilityGrid a {
+    animation-duration: 1ms;
+    transition-duration: 1ms;
+  }
+}

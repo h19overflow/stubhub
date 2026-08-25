@@ -1,0 +1,107 @@
+.main {
+  display: grid;
+  grid-template-columns: minmax(19rem, 0.78fr) minmax(25rem, 1.22fr);
+  gap: 1rem;
+  width: min(1180px, calc(100% - 2rem));
+  min-height: calc(100dvh - 7rem);
+  margin: 0 auto;
+  padding: 1rem 0 4rem;
+}
+
+.context {
+  display: flex;
+  min-height: 39rem;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(2rem, 4vw, 3.5rem);
+  border-radius: 22px;
+  background: linear-gradient(160deg, #292929, #121212 72%);
+  box-shadow: rgba(0, 0, 0, 0.48) 0 18px 52px;
+  animation: contextEnter 900ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.context h2 {
+  max-width: 13ch;
+  margin: 0;
+  color: #fff;
+  font-size: clamp(2.25rem, 5vw, 4rem);
+  font-weight: 700;
+  letter-spacing: -0.055em;
+  line-height: 1.02;
+}
+
+.eyebrow {
+  max-width: 24rem;
+  margin: 0 0 1rem;
+  color: #b3b3b3;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.context dl {
+  display: grid;
+  gap: 0.65rem;
+  margin: 3rem 0 0;
+}
+
+.context dl div {
+  display: grid;
+  grid-template-columns: 2.25rem 1fr;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-radius: 12px;
+  background: rgb(24 24 24 / 82%);
+  box-shadow: #333 0 0 0 1px inset;
+  transition: transform 520ms cubic-bezier(0.32, 0.72, 0, 1), background-color 520ms cubic-bezier(0.32, 0.72, 0, 1), box-shadow 520ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.context dl div:hover {
+  background: #202020;
+  box-shadow: #414141 0 0 0 1px inset, rgba(0, 0, 0, 0.28) 0 12px 30px;
+  transform: translateY(-2px);
+}
+
+.context dt {
+  color: #1ed760;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.context dd {
+  margin: 0;
+  color: #cbcbcb;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+@keyframes contextEnter {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 768px) {
+  .main {
+    grid-template-columns: 1fr;
+    width: min(100% - 1rem, 42rem);
+    padding-top: 0.5rem;
+  }
+
+  .context {
+    min-height: 25rem;
+    border-radius: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .context,
+  .context dl div {
+    animation-duration: 1ms;
+    transition-duration: 1ms;
+  }
+}
