@@ -3,7 +3,46 @@ import { z } from "zod";
 const parseQueryNumber = (value: unknown): unknown =>
   typeof value === "string" && value.trim() !== "" ? Number(value) : value;
 
+const isoTimestampSchema = z.iso
+  .datetime({ offset: true })
+  .transform((value) => new Date(value).toISOString());
+
 const ticketIdSchema = z.uuid();
+
+const idempotencyKeySchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[\x21-\x7e]+$/);
+
+const createTicketSchema = z
+  .object({
+    eventName: z.string().trim().min(1),
+    description: z.string().trim().min(1),
+    eventStartsAt: isoTimestampSchema,
+    eventEndsAt: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      isoTimestampSchema.optional(),
+    ),
+    ticketInfo: z.string().trim().min(1),
+    place: z.string().trim().min(1),
+    priceCents: z
+      .string()
+      .trim()
+      .regex(/^\d+$/)
+      .transform(Number)
+      .pipe(z.number().int().positive().max(Number.MAX_SAFE_INTEGER)),
+  })
+  .strict()
+  .superRefine((ticket, context) => {
+    if (ticket.eventEndsAt && Date.parse(ticket.eventEndsAt) <= Date.parse(ticket.eventStartsAt)) {
+      context.addIssue({
+        code: "custom",
+        path: ["eventEndsAt"],
+        message: "eventEndsAt must be later than eventStartsAt",
+      });
+    }
+  });
 
 const paginationSchema = z
   .object({
@@ -54,4 +93,10 @@ const listTicketsQuerySchema = paginationSchema
     }
   });
 
-export { listTicketsQuerySchema, paginationSchema, ticketIdSchema };
+export {
+  createTicketSchema,
+  idempotencyKeySchema,
+  listTicketsQuerySchema,
+  paginationSchema,
+  ticketIdSchema,
+};

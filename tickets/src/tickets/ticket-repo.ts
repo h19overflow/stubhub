@@ -1,6 +1,13 @@
 import { database } from "../database.js";
 import { toTicket } from "./ticket.js";
-import type { Ticket, TicketFilters, TicketPage, TicketRow } from "./ticket.js";
+import type {
+  CreateTicketInput,
+  CreateTicketResult,
+  Ticket,
+  TicketFilters,
+  TicketPage,
+  TicketRow,
+} from "./ticket.js";
 
 const ticketColumns = `
   id,
@@ -27,6 +34,25 @@ type Predicate = { sql: string; bindings: Array<number | string> };
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
+}
+
+function readTicketById(id: string): TicketRow | null {
+  const row = database
+    .prepare(`SELECT ${ticketColumns} FROM tickets WHERE id = ?`)
+    .get(id) as TicketRow | undefined;
+  return row ?? null;
+}
+
+function readTicketByOwnerKey(ownerId: string, idempotencyKey: string): TicketRow | null {
+  const row = database
+    .prepare(`SELECT ${ticketColumns} FROM tickets WHERE owner_id = ? AND idempotency_key = ?`)
+    .get(ownerId, idempotencyKey) as TicketRow | undefined;
+  return row ?? null;
+}
+
+function commit<T>(result: T): T {
+  database.exec("COMMIT");
+  return result;
 }
 
 function pageFor(tickets: Ticket[], page: number, pageSize: number, total: number): TicketPage {
@@ -79,6 +105,66 @@ function availablePredicates(filters: TicketFilters): Predicate {
   return { sql: `WHERE ${sql.join(" AND ")}`, bindings };
 }
 
+function createTicket(input: CreateTicketInput): CreateTicketResult {
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    const now = Date.now();
+    const inserted = database
+      .prepare(
+        `INSERT INTO tickets (
+          id,
+          owner_id,
+          event_name,
+          description,
+          event_starts_at,
+          event_ends_at,
+          ticket_info,
+          place,
+          price_cents,
+          image_filename,
+          idempotency_key,
+          request_fingerprint,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(owner_id, idempotency_key) DO NOTHING`,
+      )
+      .run(
+        input.id,
+        input.ownerId,
+        input.eventName,
+        input.description,
+        input.eventStartsAt,
+        input.eventEndsAt,
+        input.ticketInfo,
+        input.place,
+        input.priceCents,
+        input.imageFilename,
+        input.idempotencyKey,
+        input.requestFingerprint,
+        now,
+        now,
+      );
+
+    if (Number(inserted.changes) === 1) {
+      const row = readTicketById(input.id);
+      if (!row) throw new Error("Created ticket could not be read");
+      return commit({ outcome: "created", ticket: toTicket(row) });
+    }
+
+    const row = readTicketByOwnerKey(input.ownerId, input.idempotencyKey);
+    if (!row) throw new Error("Idempotent ticket could not be read");
+    if (row.request_fingerprint === input.requestFingerprint) {
+      return commit({ outcome: "replayed", ticket: toTicket(row) });
+    }
+
+    return commit({ outcome: "conflict" });
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 function listAvailableTickets(filters: TicketFilters): TicketPage {
   const predicates = availablePredicates(filters);
   const count = database
@@ -115,10 +201,8 @@ function listOwnedTickets(ownerId: string, page: number, pageSize: number): Tick
 }
 
 function findTicketById(id: string): Ticket | null {
-  const row = database
-    .prepare(`SELECT ${ticketColumns} FROM tickets WHERE id = ?`)
-    .get(id) as TicketRow | undefined;
+  const row = readTicketById(id);
   return row ? toTicket(row) : null;
 }
 
-export { findTicketById, listAvailableTickets, listOwnedTickets };
+export { createTicket, findTicketById, listAvailableTickets, listOwnedTickets };
