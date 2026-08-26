@@ -17,15 +17,15 @@ const idempotencyKeySchema = z
 
 const createTicketSchema = z
   .object({
-    eventName: z.string().trim().min(1),
-    description: z.string().trim().min(1),
+    eventName: z.string().trim().min(1).max(120),
+    description: z.string().trim().min(1).max(2000),
     eventStartsAt: isoTimestampSchema,
     eventEndsAt: z.preprocess(
       (value) => (value === "" ? undefined : value),
       isoTimestampSchema.optional(),
     ),
-    ticketInfo: z.string().trim().min(1),
-    place: z.string().trim().min(1),
+    ticketInfo: z.string().trim().min(1).max(1000),
+    place: z.string().trim().min(1).max(200),
     priceCents: z
       .string()
       .trim()
