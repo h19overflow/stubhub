@@ -21,12 +21,21 @@ export function useAuthCredentials() {
 
     try {
       if (mode === "signin") {
-        await signin(credentials);
-        setMessage("Check your email for the six-digit sign-in code.");
+        const result = await signin(credentials);
+        if ("codeRequired" in result) {
+          setMessage("Check your email for the six-digit sign-in code.");
+        } else {
+          window.location.assign("/");
+        }
         return;
       }
 
       const result = await signup(credentials);
+      if (!result.verificationRequired) {
+        setMessage("Account created. You can sign in now.");
+        return;
+      }
+
       setMessage(
         result.emailSent
           ? "Account created. Check your email for the verification code."

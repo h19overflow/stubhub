@@ -703,6 +703,7 @@ uses one Identity replica with one writable volume.
 | `SMTP_PORT` | `1025` | SMTP port. |
 | `EMAIL_FROM` | `StubHub Learning <identity@stubhub.local>` | Sender shown on challenge emails. |
 | `NODE_ENV` | unset | `production` adds `Secure` to the refresh-token cookie. |
+| `DISABLE_EMAIL_CODES` | `false` | Development-only bypass. Enabled only by exact `true` outside `production` and `test`; skips verification and sign-in email codes. |
 
 SMTP does not require TLS or configure authentication. With `secure: false`,
 Nodemailer may upgrade with STARTTLS when a server offers it, but encrypted
@@ -721,6 +722,25 @@ npm install
 
 Create `auth/.env` from `auth/.env.example` and replace its local-only
 `JWT_SECRET` before starting Identity.
+
+`auth/.env.example` keeps `DISABLE_EMAIL_CODES=false`. Set it to
+`DISABLE_EMAIL_CODES=true` in `auth/.env` to opt in explicitly for local
+development. The bypass is disabled when the variable is unset or has any other
+value, and `NODE_ENV=production` or `NODE_ENV=test` always ignores it. It is
+never inferred from an absent `NODE_ENV`. With the local flag enabled:
+
+- `POST /signup` stores the new account as email verified, issues no challenge,
+  sends no email, and returns `201` with
+  `{ user, verificationRequired: false, emailSent: false }`.
+- A successful `POST /signin` issues no challenge, sends no email, and returns
+  `200` with the standard authentication body plus the normal `HttpOnly`
+  refresh-token cookie.
+
+Set the flag back to `false`, remove it, or run with `NODE_ENV=production` or
+`NODE_ENV=test` to retain the normal verification-email and sign-in-code flow
+(`POST /signup` requires verification, and `POST /signin` returns
+`202 { codeRequired: true }`). Production and test therefore keep the email-code
+flow even if the bypass variable is accidentally set to `true`.
 
 Run only Identity:
 

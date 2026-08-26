@@ -29,13 +29,13 @@ export type AuthenticationResponse = {
 
 export type SignupResponse = {
   user: PublicUser;
-  verificationRequired: true;
+  verificationRequired: boolean;
   emailSent: boolean;
 };
 
-export type SigninResponse = {
-  codeRequired: true;
-};
+export type SigninResponse =
+  | { codeRequired: true }
+  | AuthenticationResponse;
 
 export type MessageResponse = {
   message: string;
@@ -95,23 +95,29 @@ export function parseAuthentication(value: unknown): AuthenticationResponse {
 
 export function parseSignup(value: unknown): SignupResponse {
   const body = asObject(value);
-  if (body.verificationRequired !== true || typeof body.emailSent !== "boolean") {
+  if (
+    typeof body.verificationRequired !== "boolean" ||
+    typeof body.emailSent !== "boolean"
+  ) {
     throw new TypeError("Identity service returned invalid signup data");
   }
 
   return {
     user: parsePublicUser(body.user),
-    verificationRequired: true,
+    verificationRequired: body.verificationRequired,
     emailSent: body.emailSent,
   };
 }
 
 export function parseSignin(value: unknown): SigninResponse {
   const body = asObject(value);
-  if (body.codeRequired !== true) {
-    throw new TypeError("Identity service returned invalid signin data");
+  if ("codeRequired" in body) {
+    if (body.codeRequired !== true) {
+      throw new TypeError("Identity service returned invalid signin data");
+    }
+    return { codeRequired: true };
   }
-  return { codeRequired: true };
+  return parseAuthentication(body);
 }
 
 export function parseMessage(value: unknown): MessageResponse {

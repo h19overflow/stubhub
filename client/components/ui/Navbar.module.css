@@ -1,205 +1,258 @@
 .header {
   position: relative;
-  z-index: 10;
-  width: min(1280px, calc(100% - 2rem));
-  margin: 1rem auto 0;
+  z-index: 20;
+  width: 100%;
+  min-height: var(--nav-height);
+  padding-inline: var(--page-gutter);
 }
 
 .navbar {
-  overflow: hidden;
-  border-radius: 18px;
-  background: rgb(8 8 8 / 96%);
-  box-shadow: rgba(0, 0, 0, 0.55) 0 16px 44px;
-  transition: box-shadow 600ms cubic-bezier(0.32, 0.72, 0, 1), transform 600ms cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-.navbar:hover {
-  box-shadow: rgba(0, 0, 0, 0.7) 0 20px 54px;
-}
-
-.bar {
-  display: flex;
-  min-height: 4.75rem;
+  position: relative;
+  display: grid;
+  width: 100%;
+  max-width: var(--page-max);
+  min-height: var(--nav-height);
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 1.5rem;
-  padding: 0.75rem 0.9rem 0.75rem 1.6rem;
+  margin-inline: auto;
+  padding-inline: var(--space-4);
 }
 
 .brand {
-  color: #fff;
-  font-size: 1.25rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
+  justify-self: start;
+  color: var(--color-text);
+  font-size: 1.75rem;
+  font-weight: 680;
+  letter-spacing: -0.045em;
+  line-height: 1;
   text-decoration: none;
-  transition: opacity 420ms cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-.brand:hover {
-  opacity: 0.78;
+  white-space: nowrap;
+  transition: opacity var(--motion-base) var(--ease-out-quart), transform var(--motion-base) var(--ease-out-quart);
 }
 
 .brand span {
-  margin-left: 0.35rem;
-  color: #1ed760;
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.12rem;
-  text-transform: uppercase;
+  font-weight: 400;
+  letter-spacing: -0.055em;
+}
+
+.desktopLinks,
+.mobilePanel ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.desktopLinks {
+  display: flex;
+  grid-column: 2;
+  align-items: center;
+  gap: var(--space-7);
+}
+
+.desktopLinks a {
+  display: inline-flex;
+  min-height: var(--space-7);
+  align-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: 0.9375rem;
+  font-weight: 450;
+  text-decoration: none;
+  transition: color var(--motion-base) var(--ease-out-quart), transform var(--motion-base) var(--ease-out-quart);
 }
 
 .controls {
   display: flex;
+  grid-column: 3;
   align-items: center;
-  gap: 1rem;
+  justify-self: end;
+  gap: var(--space-2);
+}
+
+.account,
+.menuButton {
+  width: 2.375rem;
+  height: 2.375rem;
+  border: var(--border-thin) solid var(--color-text);
+  border-radius: var(--radius-round);
+  color: var(--color-text);
 }
 
 .account {
-  max-width: 16rem;
-  overflow: hidden;
-  color: #b3b3b3;
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: grid;
+  place-items: center;
+}
+
+.account svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.25;
 }
 
 .menuButton {
-  gap: 0.7rem;
-  min-height: 3.15rem;
-  padding: 0.75rem 1.2rem;
+  display: none;
+  place-items: center;
+  padding: 0;
+  background: var(--color-page);
+  cursor: pointer;
+  transition: background-color var(--motion-base) var(--ease-out-quart), color var(--motion-base) var(--ease-out-quart), transform var(--motion-fast) var(--ease-out-quart);
 }
 
 .menuIcon {
   position: relative;
-  width: 1rem;
-  height: 1rem;
+  width: var(--space-4);
+  height: var(--space-4);
 }
 
 .menuIcon span {
   position: absolute;
   left: 0;
-  width: 1rem;
-  height: 1px;
+  width: 100%;
+  height: var(--border-thin);
   background: currentColor;
-  transition: transform 620ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: transform var(--motion-base) var(--ease-out-quart);
 }
 
 .menuIcon span:first-child {
-  top: 0.34rem;
+  top: var(--space-1);
 }
 
 .menuIcon span:last-child {
-  top: 0.68rem;
+  bottom: var(--space-1);
 }
 
 .menuIconOpen span:first-child {
-  transform: translateY(0.17rem) rotate(45deg);
+  transform: translateY(var(--space-1)) rotate(45deg);
 }
 
 .menuIconOpen span:last-child {
-  transform: translateY(-0.17rem) rotate(-45deg);
+  transform: translateY(calc(var(--space-1) * -1)) rotate(-45deg);
 }
 
-.menu {
-  margin: 0 0.75rem 0.75rem;
-  padding: 1.4rem;
-  border-radius: 14px;
-  background: #181818;
-  box-shadow: rgba(0, 0, 0, 0.55) 0 16px 44px;
-  animation: reveal 680ms cubic-bezier(0.32, 0.72, 0, 1) both;
+.mobilePanel {
+  display: none;
 }
 
-.menuLabel {
-  margin: 0 0 0.85rem;
-  color: #b3b3b3;
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.1rem;
-  text-transform: uppercase;
+@media (hover: hover) {
+  .brand:hover {
+    opacity: 0.78;
+    transform: translateY(calc(var(--border-thin) * -1));
+  }
+
+  .desktopLinks a:hover {
+    color: var(--color-text-muted);
+    transform: translateY(calc(var(--border-thin) * -1));
+  }
+
+  .menuButton:hover {
+    background: var(--color-text);
+    color: var(--color-page);
+  }
 }
 
-.links {
-  display: grid;
-  gap: 0.4rem;
+@media (max-width: 56.25rem) {
+  .navbar {
+    padding-inline: var(--space-2);
+  }
+
+  .brand {
+    font-size: 1.5rem;
+  }
+
+  .desktopLinks {
+    gap: var(--space-5);
+  }
 }
 
-.link {
-  display: grid;
-  grid-template-columns: 2.25rem 1fr;
-  align-items: center;
-  min-height: 3.5rem;
-  padding: 0.75rem 1rem;
-  border-radius: 10px;
-  color: #b3b3b3;
-  font-size: 0.875rem;
-  font-weight: 700;
-  text-decoration: none;
-  opacity: 0;
-  transition: background-color 480ms cubic-bezier(0.32, 0.72, 0, 1), color 480ms cubic-bezier(0.32, 0.72, 0, 1), transform 480ms cubic-bezier(0.32, 0.72, 0, 1);
-  animation: linkReveal 720ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+@media (max-width: 40rem) {
+  .navbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-inline: var(--space-2);
+  }
+
+  .brand {
+    font-size: 1.5rem;
+  }
+
+  .desktopLinks {
+    display: none;
+  }
+
+  .controls {
+    grid-column: 2;
+  }
+
+  .menuButton {
+    display: grid;
+  }
+
+  .menuButton:active {
+    transform: scale(0.96);
+  }
+
+  .mobilePanel {
+    position: absolute;
+    top: calc(100% - var(--space-1));
+    right: 0;
+    left: 0;
+    display: block;
+    padding: var(--space-2);
+    border: var(--border-thin) solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: rgb(var(--color-page-rgb) / 0.98);
+    box-shadow: var(--shadow-card-hover);
+    animation: menuReveal var(--motion-base) var(--ease-out-quart) both;
+  }
+
+  .mobilePanel a {
+    display: flex;
+    min-height: 3.25rem;
+    align-items: center;
+    padding-inline: var(--space-4);
+    border-radius: var(--radius-sm);
+    color: var(--color-text);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    text-decoration: none;
+    transition: background-color var(--motion-base) var(--ease-out-quart), transform var(--motion-base) var(--ease-out-quart);
+  }
+
+  .mobilePanel a:active {
+    transform: scale(0.985);
+  }
 }
 
-.link span {
-  color: #7c7c7c;
-  font-size: 0.625rem;
-  font-weight: 700;
+@media (hover: hover) and (max-width: 40rem) {
+  .mobilePanel a:hover {
+    background: var(--color-surface-hover);
+    transform: translateX(var(--space-1));
+  }
 }
 
-.link:hover {
-  background: #252525;
-  color: #fff;
-  transform: translateX(4px);
-}
-
-@keyframes reveal {
+@keyframes menuReveal {
   from {
     opacity: 0;
-    transform: translateY(-12px) scale(0.985);
+    transform: translateY(calc(var(--space-2) * -1));
   }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
 
-@keyframes linkReveal {
-  from {
-    opacity: 0;
-    transform: translateY(14px);
-  }
   to {
     opacity: 1;
     transform: translateY(0);
   }
 }
 
-@media (max-width: 576px) {
-  .header {
-    width: min(100% - 1rem, 42rem);
-    margin-top: 0.5rem;
-  }
-
-  .account {
-    display: none;
-  }
-
-  .bar {
-    min-height: 4.25rem;
-    padding-left: 1.15rem;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .navbar,
   .brand,
-  .menu,
-  .link {
-    animation-duration: 1ms;
-    transition-duration: 1ms;
-  }
-
-  .menuIcon span {
-    transition-duration: 1ms;
+  .desktopLinks a,
+  .menuButton,
+  .menuIcon span,
+  .mobilePanel,
+  .mobilePanel a {
+    animation: none;
+    transition: none;
   }
 }

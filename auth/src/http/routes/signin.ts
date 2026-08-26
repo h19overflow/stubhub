@@ -4,6 +4,7 @@ import { createAuthentication } from "../../tokens/authentication.js";
 import { refreshTokenCookie } from "../../tokens/refresh-token-cookie.js";
 import { authenticateUser } from "../../users/user-repo.js";
 import { sendCode } from "../../email/challenge-email.js";
+import { emailCodesDisabled } from "../../email/email-code-policy.js";
 import { authRateLimit } from "../rate-limit.js";
 import { credentialsSchema, emailCodeSchema } from "../schemas.js";
 
@@ -28,6 +29,12 @@ router.post("/signin", authRateLimit, async (request, response) => {
   }
   if (result.status === "unverified") {
     response.status(403).json({ error: "Email verification required" });
+    return;
+  }
+  if (emailCodesDisabled) {
+    const authentication = await createAuthentication(result.user);
+    response.setHeader("Set-Cookie", refreshTokenCookie(authentication.refreshToken));
+    response.status(200).json(authentication.body);
     return;
   }
 

@@ -3,6 +3,7 @@ import { HttpError } from "../error-handler.js";
 import { issueChallenge } from "../../challenges/email-challenge-repo.js";
 import { createUser } from "../../users/user-repo.js";
 import { sendCode } from "../../email/challenge-email.js";
+import { emailCodesDisabled } from "../../email/email-code-policy.js";
 import { authRateLimit } from "../rate-limit.js";
 import { credentialsSchema } from "../schemas.js";
 
@@ -15,9 +16,13 @@ router.post("/signup", authRateLimit, async (request, response) => {
     throw new HttpError(400, "A valid email and password of 8 to 256 characters are required");
   }
 
-  const user = await createUser(result.data);
+  const user = await createUser(result.data, emailCodesDisabled);
   if (!user) {
     throw new HttpError(409, "Email is already registered");
+  }
+  if (emailCodesDisabled) {
+    response.status(201).json({ user, verificationRequired: false, emailSent: false });
+    return;
   }
 
   const code = await issueChallenge(user, "verify_email");

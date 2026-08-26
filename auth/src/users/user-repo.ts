@@ -41,21 +41,25 @@ function findUserByEmail(email: string): PublicUser | null {
   return row ? publicUser(row) : null;
 }
 
-async function createUser(credentials: Credentials): Promise<PublicUser | null> {
+async function createUser(
+  credentials: Credentials,
+  emailVerified = false,
+): Promise<PublicUser | null> {
   if (findUserByEmail(credentials.email)) return null;
   const now = Date.now();
   const user = {
     id: randomUUID(),
     email: credentials.email,
     passwordHash: await hashSecret(credentials.password),
+    emailVerified,
   };
 
   try {
     database.prepare(`
-      INSERT INTO users (id, email, password_hash, created_at)
-      VALUES (?, ?, ?, ?)
-    `).run(user.id, user.email, user.passwordHash, now);
-    return { id: user.id, email: user.email, emailVerified: false, role: "user" };
+      INSERT INTO users (id, email, password_hash, email_verified_at, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(user.id, user.email, user.passwordHash, emailVerified ? now : null, now);
+    return { id: user.id, email: user.email, emailVerified, role: "user" };
   } catch (error) {
     if (String(error).includes("UNIQUE constraint failed: users.email")) return null;
     throw error;
