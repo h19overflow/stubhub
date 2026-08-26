@@ -6,6 +6,7 @@ import type {
   Ticket,
   TicketFilters,
   TicketPage,
+  UpdateTicketPriceResult,
   TicketRow,
 } from "./ticket.js";
 
@@ -165,6 +166,39 @@ function createTicket(input: CreateTicketInput): CreateTicketResult {
   }
 }
 
+function updateTicketPrice(
+  ownerId: string,
+  ticketId: string,
+  priceCents: number,
+): UpdateTicketPriceResult {
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    const updated = database
+      .prepare(
+        `UPDATE tickets
+         SET price_cents = ?, updated_at = ?
+         WHERE id = ? AND owner_id = ? AND status = 'available'`,
+      )
+      .run(priceCents, Date.now(), ticketId, ownerId);
+
+    if (Number(updated.changes) === 1) {
+      const row = readTicketById(ticketId);
+      if (!row) throw new Error("Updated ticket could not be read");
+      return commit({ outcome: "updated", ticket: toTicket(row) });
+    }
+
+    const row = database
+      .prepare("SELECT id FROM tickets WHERE id = ? AND owner_id = ?")
+      .get(ticketId, ownerId) as { id: string } | undefined;
+
+    if (!row) return commit({ outcome: "not_found" });
+    return commit({ outcome: "unavailable" });
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 function listAvailableTickets(filters: TicketFilters): TicketPage {
   const predicates = availablePredicates(filters);
   const count = database
@@ -205,4 +239,4 @@ function findTicketById(id: string): Ticket | null {
   return row ? toTicket(row) : null;
 }
 
-export { createTicket, findTicketById, listAvailableTickets, listOwnedTickets };
+export { createTicket, findTicketById, listAvailableTickets, listOwnedTickets, updateTicketPrice };

@@ -44,6 +44,12 @@ const createTicketSchema = z
     }
   });
 
+const updateTicketPriceSchema = z
+  .object({
+    priceCents: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  })
+  .strict();
+
 const paginationSchema = z
   .object({
     page: z.preprocess(parseQueryNumber, z.number().int().min(1)).default(1),
@@ -96,6 +102,7 @@ const listTicketsQuerySchema = paginationSchema
 export {
   createTicketSchema,
   idempotencyKeySchema,
+  updateTicketPriceSchema,
   listTicketsQuerySchema,
   paginationSchema,
   ticketIdSchema,

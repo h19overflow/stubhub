@@ -4,6 +4,7 @@ import { createTicket } from "./http/routes/create-ticket.js";
 import { getTicket } from "./http/routes/get-ticket.js";
 import { listMyTickets } from "./http/routes/list-my-tickets.js";
 import { listTickets } from "./http/routes/list-tickets.js";
+import { updateTicketPrice } from "./http/routes/update-ticket-price.js";
 import { errorHandler } from "./http/error-handler.js";
 
 const app = express();
@@ -23,7 +24,7 @@ app.use(
     redirect: false,
   }),
 );
-app.use(createTicket, listTickets, listMyTickets, getTicket);
+app.use(createTicket, listTickets, listMyTickets, updateTicketPrice, getTicket);
 
 app.use(errorHandler);
 
