@@ -18,7 +18,7 @@ This project uses the Next.js **Pages Router**. Files inside `pages/` define rou
 
 | File | Browser URL | Current responsibility |
 |---|---|---|
-| `pages/index.tsx` | `/` | Renders the signed-in landing demo |
+| `pages/index.tsx` | `/` | Refreshes authentication during SSR and renders the signed-in landing |
 | `pages/auth.tsx` | `/auth` | Renders the authentication shell |
 | `pages/_app.tsx` | Special file; not a normal URL | Wraps every page and imports global CSS |
 | `pages/globals.css` | Not a route | Holds document-wide styles |
@@ -181,8 +181,8 @@ Each layer has one kind of responsibility.
 | Features | `features/landing/SignedInLanding.tsx`, `features/auth/AuthForm.tsx` | Own feature-specific presentation and interaction |
 | Shared UI | `components/ui/Navbar.tsx` | Reusable application-level composition |
 | Primitives | `components/primitives/Button.tsx`, `TextField.tsx` | Small application-agnostic controls |
-| Hooks | `hooks/auth/` | Future React state orchestration for auth requests |
-| API clients | `lib/api/auth/` | Future framework-free HTTP communication with Identity |
+| Hooks | `hooks/auth/` | React state orchestration for auth requests |
+| API clients | `lib/api/auth/` | Framework-free HTTP communication with Identity |
 
 The intended dependency flow is:
 
@@ -207,25 +207,23 @@ The homepage request follows this path:
 
 ```text
 GET /
-  → pages/index.tsx
-  → SignedInLanding
-  → Navbar
-  → Button
+  → pages/index.tsx getServerSideProps
+  → refreshAuthenticationOnServer
+  → POST Identity /refresh with the incoming refresh-token cookie
+  ├→ invalid session: rotate/clear the cookie and redirect to /auth
+  └→ valid session: rotate the cookie and pass user.email as a page prop
+      → SignedInLanding
+      ├→ derive a display name from the email local part
+      └→ Navbar receives the authenticated email
 ```
 
-`pages/index.tsx` is intentionally small:
+`pages/index.tsx` owns route-level SSR authentication. It forwards the incoming cookie through the server-only Identity API client, preserves the rotated `Set-Cookie` response, and passes only the authenticated email into the feature:
 
 ```tsx
-<SignedInLanding />
+<SignedInLanding email={email} />
 ```
 
-`SignedInLanding` owns the landing-page sections and passes navigation data into `Navbar`:
-
-```tsx
-<Navbar accountLabel="demo@stubhub.local" items={navigation} />
-```
-
-The account label is currently static demo data. It is not authenticated user state.
+`SignedInLanding` owns presentation. It derives the greeting from the email while keeping the full address visible in `Navbar`.
 
 ## 8. Current `/auth` route trace
 
@@ -237,16 +235,19 @@ GET /auth
   ├→ Navbar
   └→ AuthForm
       ├→ TextField
-      └→ Button
+      ├→ Button
+      └→ useAuthCredentials
+          → signin or signup API client
+          → POST /api/identity/signin or /signup
 ```
 
 `pages/auth.tsx` owns route composition. `AuthForm` owns authentication-specific presentation, form state, and client-side feedback. `TextField` and `Button` remain generic controls that know nothing about authentication.
 
-The form currently validates its shell locally but does not contact the Identity service.
+The form validates credentials locally, then `useAuthCredentials` submits them through the Identity API client. The hook exposes request progress and response feedback without moving HTTP details into the component.
 
-## 9. Future auth request flow
+## 9. Auth form integration flow
 
-The folders `hooks/auth/` and `lib/api/auth/` are intentionally empty scaffolds. When auth integration is requested, the intended flow is:
+The credential form now follows this flow:
 
 ```text
 AuthForm
@@ -258,6 +259,8 @@ AuthForm
   → auth hook updates React state
   → AuthForm renders the result
 ```
+
+Browser calls use the same-origin `/api/identity/*` path. `next.config.ts` rewrites that path to `IDENTITY_SERVICE_URL`; the Kubernetes client deployment points it at `http://identity:3001`. This keeps browser requests and refresh-token cookies on the client origin without enabling cross-origin access on Identity.
 
 Responsibilities must remain separate:
 

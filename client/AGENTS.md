@@ -98,7 +98,7 @@ This layer owns framework-free HTTP transport:
 
 It must not import React, hooks, pages, or visual components. Components must not call raw service endpoints; they call a hook, which calls this layer.
 
-`lib/api/auth/` is intentionally scaffolded and currently contains no implementation. Do not add fake responses, no-op functions, or placeholder exports.
+`lib/api/auth/` implements the current Identity routes with typed DTOs, runtime response validation, credentialed requests, bearer authorization, and normalized HTTP errors.
 
 ## Authentication integration boundary
 

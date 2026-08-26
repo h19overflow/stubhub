@@ -59,6 +59,11 @@
   transition-duration: 160ms;
 }
 
+.modePicker button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .eyebrow {
   margin: 2.8rem 0 0.7rem;
   color: #b3b3b3;
@@ -102,6 +107,10 @@
   font-size: 0.75rem;
   line-height: 1.5;
   text-align: center;
+}
+
+.error {
+  color: #f3727f;
 }
 
 @keyframes formEnter {

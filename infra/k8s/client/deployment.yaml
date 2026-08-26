@@ -20,6 +20,9 @@ spec:
         - name: client
           image: stubhub-client
           imagePullPolicy: IfNotPresent
+          env:
+            - name: IDENTITY_SERVICE_URL
+              value: http://identity:3001
           ports:
             - name: http
               containerPort: 3000

@@ -2,6 +2,7 @@ import type { SyntheticEvent } from "react";
 import { useState } from "react";
 import { Button } from "../../components/primitives/Button";
 import { TextField } from "../../components/primitives/TextField";
+import { useAuthCredentials } from "../../hooks/auth/useAuthCredentials";
 import styles from "./AuthForm.module.css";
 
 // The form can be in exactly one of these two modes.
@@ -14,18 +15,20 @@ export function AuthForm() {
   // State is the component's memory. Updating any of these values causes React to render again.
   const [errors, setErrors] = useState<FieldErrors>({});
   const [mode, setMode] = useState<AuthMode>("signin");
-  const [status, setStatus] = useState("");
+  const { clearFeedback, hasError, isSubmitting, message, submit } = useAuthCredentials();
 
   // Switching modes updates the visible copy and clears feedback left by the previous mode.
   function selectMode(nextMode: AuthMode) {
     setMode(nextMode);
     setErrors({});
-    setStatus("");
+    clearFeedback();
   }
 
   // React calls this function when the user submits the <form> near the bottom of the component.
-  function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
+  async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting) return;
+    clearFeedback();
     // FormData reads values from controls by their `name` attributes.
     const form = new FormData(event.currentTarget);
     const email = String(form.get("email") ?? "").trim();
@@ -39,9 +42,10 @@ export function AuthForm() {
       nextErrors.password = "Use between 8 and 256 characters.";
     }
 
-    // Save the result in state. An empty error object means the shell is ready for a future API call.
     setErrors(nextErrors);
-    setStatus(Object.keys(nextErrors).length ? "" : "Form ready. Auth requests are not connected yet.");
+    if (Object.keys(nextErrors).length) return;
+
+    await submit(mode, { email, password });
   }
 
   // This derived boolean keeps the JSX conditions short and readable.
@@ -73,10 +77,20 @@ export function AuthForm() {
       <div className={styles.card}>
         {/* Layer 3A: this control group switches the same form between sign-in and sign-up modes. */}
         <div className={styles.modePicker} role="group" aria-label="Authentication mode">
-          <button aria-pressed={isSignin} onClick={() => selectMode("signin")} type="button">
+          <button
+            aria-pressed={isSignin}
+            disabled={isSubmitting}
+            onClick={() => selectMode("signin")}
+            type="button"
+          >
             Sign in
           </button>
-          <button aria-pressed={!isSignin} onClick={() => selectMode("signup")} type="button">
+          <button
+            aria-pressed={!isSignin}
+            disabled={isSubmitting}
+            onClick={() => selectMode("signup")}
+            type="button"
+          >
             Create account
           </button>
         </div>
@@ -117,12 +131,22 @@ export function AuthForm() {
             type="password"
           />
           {/* `type="submit"` connects this button to the form's `onSubmit={handleSubmit}` handler. */}
-          <Button fullWidth type="submit">
-            {isSignin ? "Continue to sign in" : "Create account"}
+          <Button disabled={isSubmitting} fullWidth type="submit">
+            {isSubmitting
+              ? isSignin
+                ? "Signing in..."
+                : "Creating account..."
+              : isSignin
+                ? "Continue to sign in"
+                : "Create account"}
           </Button>
           {/* `aria-live` announces new status text without moving keyboard focus. */}
-          <p aria-live="polite" className={styles.status}>
-            {status}
+          <p
+            aria-live="polite"
+            className={`${styles.status} ${hasError ? styles.error : ""}`}
+            role={hasError ? "alert" : undefined}
+          >
+            {message}
           </p>
         </form>
       </div>

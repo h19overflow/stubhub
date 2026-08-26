@@ -2,6 +2,17 @@ import Link from "next/link";
 import { Navbar } from "../../components/ui/Navbar";
 import styles from "./SignedInLanding.module.css";
 
+type SignedInLandingProps = {
+  email: string;
+};
+
+function displayNameFromEmail(email: string) {
+  return email
+    .slice(0, email.lastIndexOf("@"))
+    .replace(/[._+-]+/g, " ")
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
+
 // Hash links such as `#market` scroll to an element with the matching `id`.
 const navigation = [
   { href: "#market", label: "Marketplace" },
@@ -15,16 +26,16 @@ const highlights = [
   { detail: "Sunday · 7:30 PM", label: "Knicks vs. Celtics", meta: "New York, NY" },
 ] as const;
 
-export function SignedInLanding() {
+export function SignedInLanding({ email }: SignedInLandingProps) {
+  const displayName = displayNameFromEmail(email);
   return (
     <>
-      {/* Both values are props: one optional string and one required array of navigation items. */}
-      <Navbar accountLabel="demo@stubhub.local" items={navigation} />
+      <Navbar accountLabel={email} items={navigation} />
       <main className={styles.main}>
         <section className={styles.hero}>
           <div className={styles.heroCopy}>
-            <p className={styles.eyebrow}>Signed-in demo</p>
-            <h1>Your next great night starts here.</h1>
+            <p className={styles.eyebrow}>Welcome back</p>
+            <h1>{displayName}, your next great night starts here.</h1>
             <p className={styles.lead}>
               Discover tickets, manage listings, and keep every order in one calm place.
             </p>
