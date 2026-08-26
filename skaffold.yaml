@@ -37,6 +37,8 @@ build:
         manual:
           - src: "tickets/src/**/*.ts"
             dest: /app/tickets/src
+          - src: "tickets/migrations/**/*.sql"
+            dest: /app/tickets/migrations
     - image: stubhub-orders
       context: .
       docker:

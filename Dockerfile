@@ -94,6 +94,7 @@ WORKDIR /app
 COPY --from=tickets-prod-deps /app/node_modules ./node_modules
 COPY --from=tickets-build /app/tickets/package.json ./tickets/package.json
 COPY --from=tickets-build /app/tickets/dist ./tickets/dist
+COPY --from=tickets-build /app/tickets/migrations ./tickets/migrations
 USER 1000:1000
 EXPOSE 3002
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD node -e "fetch('http://127.0.0.1:3002/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"

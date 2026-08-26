@@ -16,6 +16,7 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+        fsGroup: 1000
       containers:
         - name: tickets
           image: stubhub-tickets
@@ -28,6 +29,10 @@ spec:
                 secretKeyRef:
                   name: stubhub-jwt
                   key: JWT_SECRET
+            - name: TICKETS_DB_PATH
+              value: /data/tickets.sqlite
+            - name: TICKETS_UPLOAD_DIR
+              value: /data/uploads
           ports:
             - name: http
               containerPort: 3002
@@ -50,8 +55,15 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
+          volumeMounts:
+            - name: tickets-data
+              mountPath: /data
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
             runAsNonRoot: true
+      volumes:
+        - name: tickets-data
+          persistentVolumeClaim:
+            claimName: tickets-data
