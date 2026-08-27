@@ -51,7 +51,6 @@
 }
 
 .heroImage,
-.eventImage,
 .performerImage {
   object-fit: cover;
 }
@@ -105,42 +104,6 @@
   gap: var(--space-4);
 }
 
-.primaryAction,
-.secondaryAction {
-  display: inline-flex;
-  width: 16.75rem;
-  min-height: 3.75rem;
-  align-items: center;
-  justify-content: center;
-  border: var(--border-thin) solid transparent;
-  border-radius: var(--radius-sm);
-  font-size: 1rem;
-  font-weight: 560;
-  text-decoration: none;
-  transition:
-    background-color var(--motion-base) var(--ease-out-quart),
-    border-color var(--motion-base) var(--ease-out-quart),
-    box-shadow var(--motion-base) var(--ease-out-quart),
-    color var(--motion-base) var(--ease-out-quart),
-    transform var(--motion-base) var(--ease-out-quart);
-}
-
-.primaryAction {
-  background: var(--color-accent);
-  color: var(--color-accent-contrast);
-}
-
-.secondaryAction {
-  border-color: var(--color-border-strong);
-  background: rgb(var(--color-page-rgb) / 0.56);
-  color: var(--color-text);
-}
-
-.primaryAction:active,
-.secondaryAction:active {
-  transform: translateY(var(--space-1)) scale(0.985);
-  transition-duration: var(--motion-fast);
-}
 
 .featuredGrid,
 .lowerGrid {
@@ -155,66 +118,6 @@
   grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
 }
 
-.eventCard {
-  position: relative;
-  isolation: isolate;
-  min-width: 0;
-  min-height: var(--featured-row-height);
-  overflow: hidden;
-  border: var(--border-thin) solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-card);
-  transition:
-    border-color var(--motion-base) var(--ease-out-quart),
-    box-shadow var(--motion-base) var(--ease-out-quart),
-    transform var(--motion-base) var(--ease-out-quart);
-}
-
-.eventImage {
-  z-index: 0;
-  object-position: center 42%;
-  transition: filter 700ms var(--ease-out-quart), transform 700ms var(--ease-out-quart);
-}
-
-.eventCard:nth-of-type(2) .eventImage {
-  object-position: center 54%;
-}
-
-.eventShade {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  background:
-    linear-gradient(0deg, rgb(var(--color-page-rgb) / 0.94) 0%, rgb(var(--color-page-rgb) / 0.08) 64%),
-    linear-gradient(90deg, rgb(var(--color-page-rgb) / 0.38), transparent 50%);
-  pointer-events: none;
-}
-
-.eventCopy {
-  position: absolute;
-  z-index: 2;
-  right: var(--space-5);
-  bottom: var(--space-4);
-  left: var(--space-5);
-}
-
-.eventCopy h3 {
-  margin: 0;
-  color: var(--color-text);
-  font-size: clamp(2rem, 2.6vw, 2.5rem);
-  font-weight: 530;
-  letter-spacing: -0.045em;
-  line-height: 1.05;
-}
-
-.eventCopy p {
-  margin: var(--space-2) 0 0;
-  color: var(--color-text);
-  font-size: 0.9375rem;
-  font-weight: 420;
-  line-height: 1.35;
-}
 
 .lowerGrid {
   min-height: var(--lower-row-height);
@@ -396,26 +299,6 @@
 }
 
 @media (hover: hover) {
-  .primaryAction:hover {
-    background: var(--color-accent-hover);
-    box-shadow: var(--shadow-card-hover);
-    transform: translateY(calc(var(--space-1) * -1));
-  }
-
-  .secondaryAction:hover {
-    border-color: var(--color-text-muted);
-    background: var(--color-surface-raised);
-    box-shadow: var(--shadow-card-hover);
-    transform: translateY(calc(var(--space-1) * -1));
-  }
-
-  .eventCard:hover {
-    border-color: var(--color-border-strong);
-    box-shadow: var(--shadow-card-hover);
-    transform: translateY(calc(var(--space-1) * -1));
-  }
-
-  .eventCard:hover .eventImage,
   .eventList details[open]:hover .performerImage {
     filter: brightness(1.06);
     transform: scale(1.025);
@@ -447,10 +330,6 @@
     font-size: clamp(3.5rem, 8.5vw, 4.75rem);
   }
 
-  .primaryAction,
-  .secondaryAction {
-    width: 14rem;
-  }
 
   .featuredGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -518,20 +397,12 @@
     gap: var(--space-2);
   }
 
-  .primaryAction,
-  .secondaryAction {
-    width: 100%;
-    min-height: 3.5rem;
-  }
 
   .featuredGrid,
   .lowerGrid {
     grid-template-columns: 1fr;
   }
 
-  .eventCopy h3 {
-    font-size: 2rem;
-  }
 
   .eventList,
   .venues,
@@ -553,10 +424,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .primaryAction,
-  .secondaryAction,
-  .eventCard,
-  .eventImage,
   .eventList summary,
   .eventList summary::after,
   .performerImage {

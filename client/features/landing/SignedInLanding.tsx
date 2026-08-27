@@ -1,13 +1,11 @@
-import { useGSAP } from "@gsap/react";
-import gsap from "gsap";
-import ScrollTrigger from "gsap/ScrollTrigger";
 import Image from "next/image";
-import Link from "next/link";
 import { useRef } from "react";
+import { ActionLink } from "../../components/ui/ActionLink";
+import { EventCard } from "../../components/ui/EventCard";
 import { Navbar } from "../../components/ui/Navbar";
 import styles from "./SignedInLanding.module.css";
-
-gsap.registerPlugin(useGSAP, ScrollTrigger);
+import { useLandingMotion } from "./useLandingMotion";
+import { useSignOut } from "../../hooks/auth/useSignOut";
 
 type SignedInLandingProps = {
   email: string;
@@ -19,82 +17,39 @@ const navigation = [
   { href: "#orders", label: "My orders" },
 ] as const;
 
+const featuredEvents = [
+  {
+    date: "Jun 14, 2025",
+    dateTime: "2025-06-14",
+    imageAlt: "The National standing together beneath a stormy sky",
+    imageSizes: "(max-width: 640px) 100vw, (max-width: 900px) 50vw, 58vw",
+    imageSrc: "/images/night-signal/band/band-portrait.png",
+    location: "New York, NY",
+    title: "The National",
+    venue: "Madison Square Garden",
+  },
+  {
+    date: "May 18, 2025",
+    dateTime: "2025-05-18",
+    imageAlt: "A packed basketball arena viewed from the upper sideline",
+    imagePosition: "center 54%",
+    imageSizes: "(max-width: 640px) 100vw, (max-width: 900px) 50vw, 42vw",
+    imageSrc: "/images/night-signal/arena/basketball-arena.png",
+    location: "New York, NY",
+    title: "Knicks vs. Celtics",
+    venue: "Madison Square Garden",
+  },
+] as const;
+
 export function SignedInLanding({ email }: SignedInLandingProps) {
   const landing = useRef<HTMLElement>(null);
 
-  useGSAP(
-    () => {
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-      gsap
-        .timeline({ defaults: { ease: "power3.out" } })
-        .fromTo(
-          "[data-hero-copy] > *",
-          { autoAlpha: 0, y: 24 },
-          {
-            autoAlpha: 1,
-            clearProps: "opacity,visibility,transform",
-            duration: 0.72,
-            stagger: 0.08,
-            y: 0,
-          },
-        )
-        .fromTo(
-          "[data-hero-image]",
-          { autoAlpha: 0, scale: 1.035 },
-          {
-            autoAlpha: 1,
-            clearProps: "opacity,visibility,transform",
-            duration: 1.05,
-            scale: 1,
-          },
-          0,
-        );
-
-      gsap.utils.toArray<HTMLElement>("[data-reveal-row]").forEach((row) => {
-        const items = row.querySelectorAll<HTMLElement>("[data-reveal]");
-        const images = row.querySelectorAll<HTMLElement>("[data-reveal-image]");
-
-        gsap
-          .timeline({
-            scrollTrigger: {
-              once: true,
-              start: "top 92%",
-              trigger: row,
-            },
-          })
-          .fromTo(
-            items,
-            { autoAlpha: 0, y: 22 },
-            {
-              autoAlpha: 1,
-              clearProps: "opacity,visibility,transform",
-              duration: 0.7,
-              ease: "power3.out",
-              stagger: 0.08,
-              y: 0,
-            },
-          )
-          .fromTo(
-            images,
-            { scale: 0.96 },
-            {
-              clearProps: "transform",
-              duration: 0.9,
-              ease: "power3.out",
-              scale: 1,
-              stagger: 0.08,
-            },
-            0,
-          );
-      });
-    },
-    { scope: landing },
-  );
-
+  const onClickSignOut = useSignOut();
+  
+  useLandingMotion(landing);
   return (
     <>
-      <Navbar accountLabel={email} items={navigation} />
+      <Navbar accountLabel={email} items={navigation} onSignOut={onClickSignOut} />
       <main className={styles.main} ref={landing}>
         <section aria-labelledby="landing-title" className={styles.hero}>
           <div className={styles.heroMedia} data-hero-image>
@@ -115,12 +70,12 @@ export function SignedInLanding({ email }: SignedInLandingProps) {
             </h1>
             <p>Discover and sell tickets to unforgettable live events.</p>
             <div className={styles.heroActions}>
-              <Link className={styles.primaryAction} href="#market">
+              <ActionLink href="#market" variant="primary">
                 Explore tickets
-              </Link>
-              <Link className={styles.secondaryAction} href="#selling">
+              </ActionLink>
+              <ActionLink href="#selling" variant="secondary">
                 Sell a ticket
-              </Link>
+              </ActionLink>
             </div>
           </div>
         </section>
@@ -135,41 +90,9 @@ export function SignedInLanding({ email }: SignedInLandingProps) {
             Featured events
           </h2>
 
-          <article className={styles.eventCard} data-reveal>
-            <Image
-              alt="The National standing together beneath a stormy sky"
-              className={styles.eventImage}
-              data-reveal-image
-              fill
-              sizes="(max-width: 640px) 100vw, (max-width: 900px) 50vw, 58vw"
-              src="/images/night-signal/band/band-portrait.png"
-            />
-            <div className={styles.eventShade} />
-            <div className={styles.eventCopy}>
-              <h3>The National</h3>
-              <p>
-                <time dateTime="2025-06-14">Jun 14, 2025</time> · New York, NY · Madison Square Garden
-              </p>
-            </div>
-          </article>
-
-          <article className={styles.eventCard} data-reveal>
-            <Image
-              alt="A packed basketball arena viewed from the upper sideline"
-              className={styles.eventImage}
-              data-reveal-image
-              fill
-              sizes="(max-width: 640px) 100vw, (max-width: 900px) 50vw, 42vw"
-              src="/images/night-signal/arena/basketball-arena.png"
-            />
-            <div className={styles.eventShade} />
-            <div className={styles.eventCopy}>
-              <h3>Knicks vs. Celtics</h3>
-              <p>
-                <time dateTime="2025-05-18">May 18, 2025</time> · New York, NY · Madison Square Garden
-              </p>
-            </div>
-          </article>
+          {featuredEvents.map((event) => (
+            <EventCard key={`${event.title}-${event.dateTime}`} {...event} />
+          ))}
         </section>
 
         <section aria-labelledby="night-guide-title" className={styles.lowerGrid} data-reveal-row>

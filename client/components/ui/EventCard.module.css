@@ -1,0 +1,83 @@
+.card {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+  min-height: var(--featured-row-height);
+  overflow: hidden;
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  transition:
+    border-color var(--motion-base) var(--ease-out-quart),
+    box-shadow var(--motion-base) var(--ease-out-quart),
+    transform var(--motion-base) var(--ease-out-quart);
+}
+
+.image {
+  z-index: 0;
+  object-fit: cover;
+  object-position: center 42%;
+  transition: filter 700ms var(--ease-out-quart), transform 700ms var(--ease-out-quart);
+}
+
+.shade {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background:
+    linear-gradient(0deg, rgb(var(--color-page-rgb) / 0.94) 0%, rgb(var(--color-page-rgb) / 0.08) 64%),
+    linear-gradient(90deg, rgb(var(--color-page-rgb) / 0.38), transparent 50%);
+  pointer-events: none;
+}
+
+.copy {
+  position: absolute;
+  z-index: 2;
+  right: var(--space-5);
+  bottom: var(--space-4);
+  left: var(--space-5);
+}
+
+.copy h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: clamp(2rem, 2.6vw, 2.5rem);
+  font-weight: 530;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+}
+
+.copy p {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text);
+  font-size: 0.9375rem;
+  font-weight: 420;
+  line-height: 1.35;
+}
+
+@media (hover: hover) {
+  .card:hover {
+    border-color: var(--color-border-strong);
+    box-shadow: var(--shadow-card-hover);
+    transform: translateY(calc(var(--space-1) * -1));
+  }
+
+  .card:hover .image {
+    filter: brightness(1.06);
+    transform: scale(1.025);
+  }
+}
+
+@media (max-width: 40rem) {
+  .copy h3 {
+    font-size: 2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .image {
+    transition: none;
+  }
+}

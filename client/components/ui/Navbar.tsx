@@ -10,9 +10,10 @@ type NavbarItem = {
 type NavbarProps = {
   accountLabel?: string;
   items: readonly NavbarItem[];
+  onSignOut?: () => void;
 };
 
-export function Navbar({ accountLabel, items }: NavbarProps) {
+export function Navbar({ accountLabel, items, onSignOut }: NavbarProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -28,6 +29,13 @@ export function Navbar({ accountLabel, items }: NavbarProps) {
               <Link href={item.href}>{item.label}</Link>
             </li>
           ))}
+          {onSignOut ? (
+            <li>
+              <button className={styles.navAction} onClick={onSignOut} type="button">
+                Sign out
+              </button>
+            </li>
+          ) : null}
         </ul>
 
         <div className={styles.controls}>
@@ -67,6 +75,20 @@ export function Navbar({ accountLabel, items }: NavbarProps) {
                   </Link>
                 </li>
               ))}
+              {onSignOut ? (
+                <li>
+                  <button
+                    className={styles.navAction}
+                    onClick={() => {
+                      setOpen(false);
+                      onSignOut();
+                    }}
+                    type="button"
+                  >
+                    Sign out
+                  </button>
+                </li>
+              ) : null}
             </ul>
           </div>
         ) : null}
