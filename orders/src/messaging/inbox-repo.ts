@@ -2,6 +2,13 @@ import { database } from "../database.js";
 import { toInboxMessage } from "./inbox-message.js";
 import type { InboxMessageRow, RecordInboxMessageResult } from "./inbox-message.js";
 
+/**
+ * Atomically inserts or detects one consumer's idempotency marker.
+ *
+ * A message handler must call this in the same database transaction as its
+ * business update. Otherwise a crash can record the marker without doing the
+ * work, causing a later delivery to be mistaken for a safely handled duplicate.
+ */
 function recordInboxMessage(consumer: string, messageId: string): RecordInboxMessageResult {
   const result = database.prepare(`
     INSERT INTO inbox_messages (consumer, message_id, processed_at)

@@ -51,6 +51,12 @@ function readProcessingPaymentAttempt(orderId: string): PaymentAttemptRow | null
   return row ?? null;
 }
 
+/**
+ * Creates or resolves an idempotent payment attempt.
+ *
+ * Database constraints allow only one processing attempt per Order. A repeated
+ * key replays only when its request fingerprint matches.
+ */
 function createPaymentAttempt(input: CreatePaymentAttemptInput): CreatePaymentAttemptResult {
   const now = Date.now();
   const inserted = database
@@ -96,16 +102,22 @@ function createPaymentAttempt(input: CreatePaymentAttemptInput): CreatePaymentAt
   throw new Error("Payment attempt could not be created");
 }
 
+/** Finds one attempt only within its owning Order. */
 function findPaymentAttemptById(orderId: string, attemptId: string): PaymentAttempt | null {
   const row = readPaymentAttemptByOrderAndId(orderId, attemptId);
   return row ? toPaymentAttempt(row) : null;
 }
 
+/** Returns the Order's current processing attempt, if one exists. */
 function findProcessingPaymentAttempt(orderId: string): PaymentAttempt | null {
   const row = readProcessingPaymentAttempt(orderId);
   return row ? toPaymentAttempt(row) : null;
 }
 
+/**
+ * Moves a processing attempt to `succeeded` and stores the provider reference.
+ * Returns null when the attempt is missing, belongs to another Order, or is terminal.
+ */
 function markPaymentAttemptSucceeded(
   orderId: string,
   attemptId: string,
@@ -123,6 +135,10 @@ function markPaymentAttemptSucceeded(
   return findPaymentAttemptById(orderId, attemptId);
 }
 
+/**
+ * Moves a processing attempt to `failed` and stores the provider failure code.
+ * Returns null when the attempt is missing, belongs to another Order, or is terminal.
+ */
 function markPaymentAttemptFailed(
   orderId: string,
   attemptId: string,

@@ -1,5 +1,7 @@
+/** Event data stays unknown until concrete, versioned event contracts are defined. */
 type OutboxPayload = unknown;
 
+/** Application view of a durable outgoing event and its publication state. */
 type OutboxMessage = {
   id: string;
   aggregateType: string;
@@ -15,6 +17,7 @@ type OutboxMessage = {
   lastError: string | null;
 };
 
+/** SQLite row shape before JSON and timestamps are converted for the application. */
 type OutboxMessageRow = {
   id: string;
   aggregate_type: string;
@@ -30,6 +33,10 @@ type OutboxMessageRow = {
   last_error: string | null;
 };
 
+/**
+ * Data needed when a business transaction records a fact for later publication.
+ * Delivery bookkeeping starts with repository-controlled defaults.
+ */
 type EnqueueOutboxMessageInput = {
   id: string;
   aggregateType: string;

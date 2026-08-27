@@ -21,6 +21,12 @@ const outboxColumns = `
   last_error
 `;
 
+/**
+ * Stores a business fact for later publication.
+ *
+ * Call this in the same database transaction as the Order change that produced
+ * the fact. The publisher can then retry without losing a committed event.
+ */
 function enqueueOutboxMessage(input: EnqueueOutboxMessageInput): OutboxMessage {
   const now = Date.now();
   const payload = JSON.stringify(input.payload);
@@ -59,6 +65,7 @@ function enqueueOutboxMessage(input: EnqueueOutboxMessageInput): OutboxMessage {
   };
 }
 
+/** Returns the oldest unpublished rows for one publisher batch. */
 function listUnpublishedOutboxMessages(limit: number): OutboxMessage[] {
   if (!Number.isSafeInteger(limit) || limit <= 0) {
     throw new RangeError("Outbox batch limit must be a positive safe integer");
@@ -74,6 +81,10 @@ function listUnpublishedOutboxMessages(limit: number): OutboxMessage[] {
   return rows.map(toOutboxMessage);
 }
 
+/**
+ * Records a successful publish attempt.
+ * Returns false when the row is missing or another attempt already marked it.
+ */
 function markOutboxMessagePublished(id: string): boolean {
   const now = Date.now();
   const result = database.prepare(`
@@ -84,6 +95,10 @@ function markOutboxMessagePublished(id: string): boolean {
   return Number(result.changes) === 1;
 }
 
+/**
+ * Keeps a failed message unpublished while recording retry diagnostics.
+ * Returns false when the row is missing or was already published.
+ */
 function recordOutboxMessageFailure(id: string, error: string): boolean {
   const result = database.prepare(`
     UPDATE outbox_messages

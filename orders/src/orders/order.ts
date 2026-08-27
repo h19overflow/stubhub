@@ -1,5 +1,18 @@
+/**
+ * Order lifecycle owned by this service.
+ *
+ * `pending -> payment_processing -> complete`
+ * `pending -> expired`
+ * `payment_processing -> pending | expired` after a failed payment
+ */
 type OrderStatus = "pending" | "payment_processing" | "complete" | "expired";
 
+/**
+ * Public Order shape.
+ *
+ * `amountCents` and `currency` are captured when purchase begins; later Ticket
+ * price edits must not change this snapshot.
+ */
 type Order = {
   id: string;
   userId: string;
@@ -13,6 +26,7 @@ type Order = {
   updatedAt: string;
 };
 
+/** SQLite shape, including idempotency metadata that is not exposed on `Order`. */
 type OrderRow = {
   id: string;
   user_id: string;
@@ -28,6 +42,10 @@ type OrderRow = {
   updated_at: number;
 };
 
+/**
+ * Order creation data plus the key and fingerprint used to make retries safe.
+ * Reusing a key is valid only when the fingerprint still describes the same request.
+ */
 type CreateOrderInput = {
   id: string;
   userId: string;
@@ -38,6 +56,10 @@ type CreateOrderInput = {
   requestFingerprint: string;
 };
 
+/**
+ * `replayed` returns the original Order for the same request.
+ * `conflict` means the idempotency key was reused for different request data.
+ */
 type CreateOrderResult =
   | { outcome: "created"; order: Order }
   | { outcome: "replayed"; order: Order }

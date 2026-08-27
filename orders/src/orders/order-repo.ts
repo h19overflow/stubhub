@@ -31,6 +31,12 @@ function readOrderByUserKey(userId: string, idempotencyKey: string): OrderRow | 
   return row ?? null;
 }
 
+/**
+ * Creates one pending Order or resolves an idempotent retry.
+ *
+ * Uniqueness is scoped to `(userId, idempotencyKey)`; the fingerprint prevents
+ * one key from silently representing two different purchase requests.
+ */
 function createOrder(input: CreateOrderInput, now: number): CreateOrderResult {
   const inserted = database
     .prepare(
@@ -73,6 +79,7 @@ function createOrder(input: CreateOrderInput, now: number): CreateOrderResult {
   return { outcome: "conflict" };
 }
 
+/** Finds an Order only when it belongs to the requesting user. */
 function findOrderByIdForUser(userId: string, orderId: string): Order | null {
   const row = database
     .prepare(`SELECT ${orderColumns} FROM orders WHERE id = ? AND user_id = ?`)
@@ -80,6 +87,7 @@ function findOrderByIdForUser(userId: string, orderId: string): Order | null {
   return row ? toOrder(row) : null;
 }
 
+/** Lists active Orders and completed purchases; expired Orders are intentionally omitted. */
 function listOrdersForUser(userId: string): Order[] {
   const rows = database
     .prepare(
@@ -92,6 +100,10 @@ function listOrdersForUser(userId: string): Order[] {
   return rows.map(toOrder);
 }
 
+/**
+ * Claims an unexpired pending Order for payment and increments its version.
+ * Returns null when the Order is missing, belongs to another user, is not pending, or expired.
+ */
 function beginOrderPayment(userId: string, orderId: string, now: number): Order | null {
   const row = database
     .prepare(
@@ -104,6 +116,10 @@ function beginOrderPayment(userId: string, orderId: string, now: number): Order 
   return row ? toOrder(row) : null;
 }
 
+/**
+ * Completes only an Order currently in `payment_processing` and increments its version.
+ * Returns null when another transition already won or the Order does not exist.
+ */
 function completeOrderPayment(orderId: string, now: number): Order | null {
   const row = database
     .prepare(
@@ -116,6 +132,10 @@ function completeOrderPayment(orderId: string, now: number): Order | null {
   return row ? toOrder(row) : null;
 }
 
+/**
+ * After provider failure, restores the Order to `pending` only while reservation
+ * time remains. The caller is responsible for establishing that payment failed.
+ */
 function returnOrderToPending(orderId: string, now: number): Order | null {
   const row = database
     .prepare(
@@ -128,6 +148,10 @@ function returnOrderToPending(orderId: string, now: number): Order | null {
   return row ? toOrder(row) : null;
 }
 
+/**
+ * After provider failure, expires a processing Order whose deadline has passed.
+ * The caller is responsible for establishing that payment is no longer in flight.
+ */
 function expireOrderAfterFailedPayment(orderId: string, now: number): Order | null {
   const row = database
     .prepare(
@@ -140,6 +164,7 @@ function expireOrderAfterFailedPayment(orderId: string, now: number): Order | nu
   return row ? toOrder(row) : null;
 }
 
+/** Expires an unpaid pending Order only after its deadline and increments its version. */
 function expirePendingOrder(orderId: string, now: number): Order | null {
   const row = database
     .prepare(
