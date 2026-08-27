@@ -1,8 +1,8 @@
+import { requireAuth } from "@stubhub/common";
 import { Router } from "express";
 import { ticketIdSchema, updateTicketPriceSchema } from "../../tickets/schemas.js";
 import { updateTicketPrice as updateTicketPriceRecord } from "../../tickets/ticket-repo.js";
 import { HttpError } from "../error-handler.js";
-import { requireAuth } from "../require-auth.js";
 
 const router = Router();
 

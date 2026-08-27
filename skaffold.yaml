@@ -28,6 +28,8 @@ build:
         manual:
           - src: "auth/src/**/*.ts"
             dest: /app/auth/src
+          - src: "common/src/**/*.ts"
+            dest: /app/common/src
     - image: stubhub-tickets
       context: .
       docker:
@@ -37,6 +39,8 @@ build:
         manual:
           - src: "tickets/src/**/*.ts"
             dest: /app/tickets/src
+          - src: "common/src/**/*.ts"
+            dest: /app/common/src
           - src: "tickets/migrations/**/*.sql"
             dest: /app/tickets/migrations
     - image: stubhub-orders

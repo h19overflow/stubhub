@@ -1,8 +1,8 @@
+import { JWT_AUDIENCE, JWT_ISSUER } from "@stubhub/common";
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 import { SignJWT } from "jose";
 import { createAccessToken } from "../../src/tokens/access-token.js";
-import { JWT_AUDIENCE, JWT_ISSUER } from "../../src/tokens/token-config.js";
 import { resetDatabase } from "../support/database.js";
 import { startTestServer, type TestServer } from "../support/server.js";
 

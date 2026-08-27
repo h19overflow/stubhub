@@ -3,6 +3,7 @@
   "private": true,
   "workspaces": [
     "client",
+    "common",
     "auth",
     "tickets",
     "event-bus",

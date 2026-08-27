@@ -1,6 +1,6 @@
+import { requireAuth } from "@stubhub/common";
 import { Router } from "express";
 import { HttpError } from "../error-handler.js";
-import { requireAuth } from "../require-auth.js";
 import { listTicketsQuerySchema } from "../../tickets/schemas.js";
 import { listAvailableTickets } from "../../tickets/ticket-repo.js";
 

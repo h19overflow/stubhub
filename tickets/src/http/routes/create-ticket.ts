@@ -1,61 +1,54 @@
-import { randomUUID } from "node:crypto";
-import { basename } from "node:path";
-import { Router } from "express";
-import {
-  finalizeImage,
-  fingerprintCreateRequest,
-  inspectImage,
-  removeImage,
-  ticketImageUpload,
-} from "../../images/image-upload.js";
-import { createTicket as createTicketRecord } from "../../tickets/ticket-repo.js";
+import { requireAuth } from "@stubhub/common";
+import { Router, type Request, type Response } from "express";
+import { removeImage, ticketImageUpload } from "../../images/image-upload.js";
+import { createTicket as createTicketForUser } from "../../tickets/create-ticket.js";
 import { createTicketSchema, idempotencyKeySchema } from "../../tickets/schemas.js";
+import type { CreateTicketResult } from "../../tickets/ticket.js";
 import { HttpError } from "../error-handler.js";
-import { requireAuth } from "../require-auth.js";
 
 const router = Router();
 
-router.post("/tickets", requireAuth, ticketImageUpload.single("image"), async (request, response) => {
-  let imagePath = request.file?.path;
+function parseCreateTicketRequest(request: Request) {
+  const idempotencyKey = idempotencyKeySchema.safeParse(request.get("Idempotency-Key"));
+  const fields = createTicketSchema.safeParse(request.body);
+  const imagePath = request.file?.path;
+  if (!idempotencyKey.success || !fields.success || !imagePath) {
+    throw new HttpError(400, "Valid ticket fields, image, and Idempotency-Key are required");
+  }
+
+  return { fields: fields.data, imagePath, idempotencyKey: idempotencyKey.data };
+}
+
+function sendCreateTicketResponse(response: Response, result: CreateTicketResult): void {
+  if (result.outcome === "created") {
+    response.status(201).json({ ticket: result.ticket });
+    return;
+  }
+
+  if (result.outcome === "replayed") {
+    response.status(200).json({ ticket: result.ticket });
+    return;
+  }
+
+  throw new HttpError(409, "Idempotency key was already used for different ticket data");
+}
+
+async function handleCreateTicket(request: Request, response: Response): Promise<void> {
+  let unclaimedImagePath = request.file?.path;
   try {
-    const key = idempotencyKeySchema.safeParse(request.get("Idempotency-Key"));
-    const fields = createTicketSchema.safeParse(request.body);
-    if (!key.success || !fields.success || !imagePath) {
-      throw new HttpError(400, "Valid ticket fields, image, and Idempotency-Key are required");
-    }
-
-    const image = await inspectImage(imagePath);
-    const requestFingerprint = await fingerprintCreateRequest(fields.data, imagePath);
-    const id = randomUUID();
-    imagePath = await finalizeImage(imagePath, id, image.extension);
-    const result = createTicketRecord({
-      id,
+    const command = parseCreateTicketRequest(request);
+    unclaimedImagePath = undefined;
+    const result = await createTicketForUser({
       ownerId: response.locals.user.id,
-      ...fields.data,
-      eventStartsAt: Date.parse(fields.data.eventStartsAt),
-      eventEndsAt: fields.data.eventEndsAt ? Date.parse(fields.data.eventEndsAt) : null,
-      imageFilename: basename(imagePath),
-      idempotencyKey: key.data,
-      requestFingerprint,
+      ...command,
     });
-
-    if (result.outcome === "created") {
-      imagePath = undefined;
-      response.status(201).json({ ticket: result.ticket });
-      return;
-    }
-
-    await removeImage(imagePath);
-    imagePath = undefined;
-    if (result.outcome === "replayed") {
-      response.status(200).json({ ticket: result.ticket });
-      return;
-    }
-    throw new HttpError(409, "Idempotency key was already used for different ticket data");
+    sendCreateTicketResponse(response, result);
   } catch (error) {
-    if (imagePath) await removeImage(imagePath);
+    if (unclaimedImagePath) await removeImage(unclaimedImagePath);
     throw error;
   }
-});
+}
+
+router.post("/tickets", requireAuth, ticketImageUpload.single("image"), handleCreateTicket);
 
 export { router as createTicket };

@@ -1,5 +1,5 @@
+import { requireAuth } from "@stubhub/common";
 import express from "express";
-import { requireAuth } from "../require-auth.js";
 
 const router = express.Router();
 

@@ -1,16 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { SignJWT } from "jose";
-import {
-  createAccessToken,
-  verifyAccessToken,
-} from "../../src/tokens/access-token.js";
 import {
   JWT_ALGORITHM,
   JWT_AUDIENCE,
   JWT_ISSUER,
   JWT_SECRET,
-} from "../../src/tokens/token-config.js";
+  verifyAccessToken,
+} from "@stubhub/common";
+import { SignJWT } from "jose";
+import { createAccessToken } from "../../src/tokens/access-token.js";
 
 const user = {
   id: "123e4567-e89b-42d3-a456-426614174000",

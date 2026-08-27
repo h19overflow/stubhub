@@ -4,15 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "nodemon --watch src --watch migrations --ext ts,sql --exec \"npm run build && node --env-file-if-exists=.env dist/index.js\"",
-    "build": "tsc -p tsconfig.json",
+    "dev": "nodemon --watch src --watch migrations --watch ../common/src --ext ts,sql --exec \"npm run build && node --env-file-if-exists=.env dist/index.js\"",
+    "build:common": "npm --prefix ../common run build",
+    "build": "npm run build:common && tsc -p tsconfig.json",
     "migrate": "npm run build && node dist/database.js",
     "start": "node --env-file-if-exists=.env dist/index.js",
-    "test:build": "node -e \"require('node:fs').rmSync('dist-test', { recursive: true, force: true })\" && tsc -p tsconfig.test.json && node -e \"require('node:fs').cpSync('migrations', 'dist-test/migrations', { recursive: true })\"",
+    "test:build": "npm run build:common && node -e \"require('node:fs').rmSync('dist-test', { recursive: true, force: true })\" && tsc -p tsconfig.test.json && node -e \"require('node:fs').cpSync('migrations', 'dist-test/migrations', { recursive: true })\"",
     "test": "npm run test:build && node --env-file=tests/test.env --test \"dist-test/tests/unit/**/*.test.js\" \"dist-test/tests/integration/**/*.test.js\"",
     "test:unit": "npm run test:build && node --env-file=tests/test.env --test \"dist-test/tests/unit/**/*.test.js\"",
     "test:integration": "npm run test:build && node --env-file=tests/test.env --test \"dist-test/tests/integration/**/*.test.js\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "npm run build:common && tsc --noEmit",
     "check:commit": "npm run typecheck && npm run test:unit",
     "check:push": "npm run build && npm test"
   },
@@ -20,6 +21,7 @@
     "node": ">=24"
   },
   "dependencies": {
+    "@stubhub/common": "0.1.0",
     "express": "^5.2.1",
     "jose": "^6.2.10",
     "nodemailer": "^9.0.5",

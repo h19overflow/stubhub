@@ -1,5 +1,5 @@
+import { requireAuth } from "@stubhub/common";
 import { Router } from "express";
-import { requireAuth } from "../require-auth.js";
 import { ticketIdSchema } from "../../tickets/schemas.js";
 import { findTicketById } from "../../tickets/ticket-repo.js";
 

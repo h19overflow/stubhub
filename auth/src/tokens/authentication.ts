@@ -1,5 +1,5 @@
+import { ACCESS_TOKEN_TTL_SECONDS } from "@stubhub/common";
 import { createAccessToken } from "./access-token.js";
-import { ACCESS_TOKEN_TTL_SECONDS } from "./token-config.js";
 import {
   createRefreshToken,
   rotateRefreshToken,

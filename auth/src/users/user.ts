@@ -8,3 +8,4 @@ type PublicUser = {
 };
 
 export type { PublicUser, UserRole };
+
