@@ -1,165 +1,274 @@
-import { database } from "../database.js";
+import { randomUUID } from "node:crypto";
+import { database, withTransaction } from "../database.js";
+import { toOrder } from "../orders/order.js";
+import type { Order, OrderRow } from "../orders/order.js";
+import { retryDelayMs } from "../retry-delay.js";
 import { toPaymentAttempt } from "./payment-attempt.js";
 import type {
-  CreatePaymentAttemptInput,
-  CreatePaymentAttemptResult,
   PaymentAttempt,
   PaymentAttemptRow,
+  ProviderScenario,
 } from "./payment-attempt.js";
 
-const paymentAttemptColumns = `
-  id,
-  order_id,
-  status,
-  provider_reference,
-  failure_code,
-  idempotency_key,
-  request_fingerprint,
-  created_at,
-  updated_at
-`;
+const attemptColumns =
+  "id,order_id,status,provider_scenario,provider_reference,failure_code,idempotency_key,request_fingerprint,reconcile_attempt_count,next_reconcile_at,last_reconcile_error,created_at,updated_at";
+const orderColumns =
+  "id,user_id,ticket_id,amount_cents,currency,status,expires_at,version,ticket_event_name,ticket_event_starts_at,ticket_event_ends_at,ticket_place,ticket_info,created_at,updated_at";
 
-function readPaymentAttemptByOrderAndId(orderId: string, attemptId: string): PaymentAttemptRow | null {
-  const row = database
-    .prepare(`SELECT ${paymentAttemptColumns} FROM payment_attempts WHERE order_id = ? AND id = ?`)
-    .get(orderId, attemptId) as PaymentAttemptRow | undefined;
-  return row ?? null;
+type PaymentWorkResult = {
+  attemptRow: PaymentAttemptRow;
+  attempt: PaymentAttempt;
+  order: Order;
+};
+
+type BeginPaymentResult =
+  | ({ kind: "created" } & PaymentWorkResult)
+  | ({ kind: "replayed" } & PaymentWorkResult)
+  | ({ kind: "processing" } & PaymentWorkResult)
+  | { kind: "conflict" }
+  | { kind: "not_payable" };
+
+function rowByKey(orderId: string, key: string): PaymentAttemptRow | null {
+  return (
+    (database
+      .prepare(
+        `SELECT ${attemptColumns}
+         FROM payment_attempts
+         WHERE order_id=? AND idempotency_key=?`,
+      )
+      .get(orderId, key) as PaymentAttemptRow | undefined) ?? null
+  );
 }
 
-function readPaymentAttemptByOrderAndKey(
+function processing(orderId: string): PaymentAttemptRow | null {
+  return (
+    (database
+      .prepare(
+        `SELECT ${attemptColumns}
+         FROM payment_attempts
+         WHERE order_id=? AND status='processing'`,
+      )
+      .get(orderId) as PaymentAttemptRow | undefined) ?? null
+  );
+}
+
+function beginPayment(
+  userId: string,
   orderId: string,
-  idempotencyKey: string,
-): PaymentAttemptRow | null {
-  const row = database
-    .prepare(
-      `SELECT ${paymentAttemptColumns}
-       FROM payment_attempts
-       WHERE order_id = ? AND idempotency_key = ?`,
-    )
-    .get(orderId, idempotencyKey) as PaymentAttemptRow | undefined;
-  return row ?? null;
+  key: string,
+  scenario: ProviderScenario,
+  now: number,
+): BeginPaymentResult {
+  return withTransaction(() => {
+    const same = rowByKey(orderId, key);
+    const owned = database
+      .prepare(`SELECT ${orderColumns} FROM orders WHERE id=? AND user_id=?`)
+      .get(orderId, userId) as OrderRow | undefined;
+    if (!owned) return { kind: "not_payable" };
+    if (same) {
+      if (same.request_fingerprint !== scenario) return { kind: "conflict" };
+      return {
+        kind: "replayed",
+        attemptRow: same,
+        attempt: toPaymentAttempt(same),
+        order: toOrder(owned),
+      };
+    }
+
+    const active = processing(orderId);
+    if (active) {
+      return {
+        kind: "processing",
+        attempt: toPaymentAttempt(active),
+        attemptRow: active,
+        order: toOrder(owned),
+      };
+    }
+
+    const changed = database
+      .prepare(
+        `UPDATE orders
+         SET status='payment_processing',version=version+1,updated_at=?
+         WHERE id=? AND user_id=? AND status='pending' AND expires_at>?`,
+      )
+      .run(now, orderId, userId, now);
+    if (Number(changed.changes) !== 1) return { kind: "not_payable" };
+
+    const id = randomUUID();
+    database
+      .prepare(
+        `INSERT INTO payment_attempts(
+           id,order_id,provider_scenario,idempotency_key,request_fingerprint,
+           next_reconcile_at,created_at,updated_at
+         )
+         VALUES(?,?,?,?,?,?,?,?)`,
+      )
+      .run(id, orderId, scenario, key, scenario, now, now, now);
+
+    const attempt = database
+      .prepare(`SELECT ${attemptColumns} FROM payment_attempts WHERE id=?`)
+      .get(id) as PaymentAttemptRow;
+    const order = database
+      .prepare(`SELECT ${orderColumns} FROM orders WHERE id=?`)
+      .get(orderId) as OrderRow;
+    return {
+      kind: "created",
+      attemptRow: attempt,
+      attempt: toPaymentAttempt(attempt),
+      order: toOrder(order),
+    };
+  });
 }
 
-function readProcessingPaymentAttempt(orderId: string): PaymentAttemptRow | null {
-  const row = database
+function updateProviderReference(
+  expected: PaymentAttemptRow,
+  reference: string,
+  now: number,
+): boolean {
+  const result = database
     .prepare(
-      `SELECT ${paymentAttemptColumns}
-       FROM payment_attempts
-       WHERE order_id = ? AND status = 'processing'`,
-    )
-    .get(orderId) as PaymentAttemptRow | undefined;
-  return row ?? null;
-}
-
-/**
- * Creates or resolves an idempotent payment attempt.
- *
- * Database constraints allow only one processing attempt per Order. A repeated
- * key replays only when its request fingerprint matches.
- */
-function createPaymentAttempt(input: CreatePaymentAttemptInput): CreatePaymentAttemptResult {
-  const now = Date.now();
-  const inserted = database
-    .prepare(
-      `INSERT INTO payment_attempts (
-        id,
-        order_id,
-        idempotency_key,
-        request_fingerprint,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT DO NOTHING`,
+      `UPDATE payment_attempts
+       SET provider_reference=?,reconcile_attempt_count=reconcile_attempt_count+1,
+           next_reconcile_at=?,updated_at=?
+       WHERE id=? AND status=? AND reconcile_attempt_count=?`,
     )
     .run(
-      input.id,
-      input.orderId,
-      input.idempotencyKey,
-      input.requestFingerprint,
+      reference,
+      now + retryDelayMs(expected.reconcile_attempt_count),
       now,
-      now,
+      expected.id,
+      expected.status,
+      expected.reconcile_attempt_count,
     );
+  return Number(result.changes) === 1;
+}
 
-  if (Number(inserted.changes) === 1) {
-    const row = readPaymentAttemptByOrderAndId(input.orderId, input.id);
-    if (!row) throw new Error("Created payment attempt could not be read");
-    return { outcome: "created", attempt: toPaymentAttempt(row) };
-  }
+function resolveAttempt(
+  id: string,
+  outcome: "succeeded" | "declined",
+  reference: string,
+  failure: string | null,
+  now: number,
+): { order: Order; attempt: PaymentAttempt } | null {
+  return withTransaction(() => {
+    const attempt = database
+      .prepare(`SELECT ${attemptColumns} FROM payment_attempts WHERE id=?`)
+      .get(id) as PaymentAttemptRow | undefined;
+    if (!attempt) return null;
 
-  const idempotentRow = readPaymentAttemptByOrderAndKey(input.orderId, input.idempotencyKey);
-  if (idempotentRow) {
-    if (idempotentRow.request_fingerprint === input.requestFingerprint) {
-      return { outcome: "replayed", attempt: toPaymentAttempt(idempotentRow) };
+    if (attempt.status !== "processing") {
+      const order = database
+        .prepare(`SELECT ${orderColumns} FROM orders WHERE id=?`)
+        .get(attempt.order_id) as OrderRow;
+      return { order: toOrder(order), attempt: toPaymentAttempt(attempt) };
     }
-    return { outcome: "conflict" };
-  }
 
-  const processingRow = readProcessingPaymentAttempt(input.orderId);
-  if (processingRow) {
-    return { outcome: "already_processing", attempt: toPaymentAttempt(processingRow) };
-  }
+    database
+      .prepare(
+        `UPDATE payment_attempts
+         SET status=?,provider_reference=?,failure_code=?,next_reconcile_at=NULL,
+             last_reconcile_error=NULL,updated_at=?
+         WHERE id=? AND status='processing'`,
+      )
+      .run(
+        outcome === "succeeded" ? "succeeded" : "failed",
+        reference,
+        failure,
+        now,
+        id,
+      );
 
-  throw new Error("Payment attempt could not be created");
+    const order =
+      outcome === "succeeded"
+        ? (database
+            .prepare(
+              `UPDATE orders
+               SET status='complete',version=version+1,updated_at=?
+               WHERE id=? AND status='payment_processing'
+               RETURNING ${orderColumns}`,
+            )
+            .get(now, attempt.order_id) as OrderRow | undefined)
+        : (database
+            .prepare(
+              `UPDATE orders
+               SET status=CASE WHEN expires_at>? THEN 'pending' ELSE 'expired' END,
+                   version=version+1,updated_at=?
+               WHERE id=? AND status='payment_processing'
+               RETURNING ${orderColumns}`,
+            )
+            .get(now, now, attempt.order_id) as OrderRow | undefined);
+    if (!order) throw new Error("payment order transition lost");
+
+    if (order.status === "complete" || order.status === "expired") {
+      database
+        .prepare(
+          `INSERT INTO outbox_messages(
+             id,aggregate_type,aggregate_id,aggregate_version,event_type,
+             event_version,payload,created_at,updated_at,next_attempt_at
+           )
+           VALUES(?,'order',?,?,?,1,?,?,?,?)`,
+        )
+        .run(
+          randomUUID(),
+          order.id,
+          order.version,
+          order.status === "complete" ? "order.completed" : "order.expired",
+          JSON.stringify({ ticketId: order.ticket_id }),
+          now,
+          now,
+          now,
+        );
+    }
+
+    const updated = database
+      .prepare(`SELECT ${attemptColumns} FROM payment_attempts WHERE id=?`)
+      .get(id) as PaymentAttemptRow;
+    return { order: toOrder(order), attempt: toPaymentAttempt(updated) };
+  });
 }
 
-/** Finds one attempt only within its owning Order. */
-function findPaymentAttemptById(orderId: string, attemptId: string): PaymentAttempt | null {
-  const row = readPaymentAttemptByOrderAndId(orderId, attemptId);
-  return row ? toPaymentAttempt(row) : null;
+function dueAttempts(now: number): PaymentAttemptRow[] {
+  return database
+    .prepare(
+      `SELECT ${attemptColumns}
+       FROM payment_attempts
+       WHERE status='processing' AND next_reconcile_at<=?
+       ORDER BY next_reconcile_at,id
+       LIMIT 100`,
+    )
+    .all(now) as PaymentAttemptRow[];
 }
 
-/** Returns the Order's current processing attempt, if one exists. */
-function findProcessingPaymentAttempt(orderId: string): PaymentAttempt | null {
-  const row = readProcessingPaymentAttempt(orderId);
-  return row ? toPaymentAttempt(row) : null;
-}
-
-/**
- * Moves a processing attempt to `succeeded` and stores the provider reference.
- * Returns null when the attempt is missing, belongs to another Order, or is terminal.
- */
-function markPaymentAttemptSucceeded(
-  orderId: string,
-  attemptId: string,
-  providerReference: string,
-): PaymentAttempt | null {
-  const updated = database
+function scheduleAttempt(
+  expected: PaymentAttemptRow,
+  error: string,
+  now: number,
+): boolean {
+  const result = database
     .prepare(
       `UPDATE payment_attempts
-       SET status = 'succeeded', provider_reference = ?, failure_code = NULL, updated_at = ?
-       WHERE order_id = ? AND id = ? AND status = 'processing'`,
+       SET reconcile_attempt_count=reconcile_attempt_count+1,next_reconcile_at=?,
+           last_reconcile_error=?,updated_at=?
+       WHERE id=? AND status=? AND reconcile_attempt_count=?`,
     )
-    .run(providerReference, Date.now(), orderId, attemptId);
-
-  if (Number(updated.changes) !== 1) return null;
-  return findPaymentAttemptById(orderId, attemptId);
-}
-
-/**
- * Moves a processing attempt to `failed` and stores the provider failure code.
- * Returns null when the attempt is missing, belongs to another Order, or is terminal.
- */
-function markPaymentAttemptFailed(
-  orderId: string,
-  attemptId: string,
-  failureCode: string,
-): PaymentAttempt | null {
-  const updated = database
-    .prepare(
-      `UPDATE payment_attempts
-       SET status = 'failed', failure_code = ?, updated_at = ?
-       WHERE order_id = ? AND id = ? AND status = 'processing'`,
-    )
-    .run(failureCode, Date.now(), orderId, attemptId);
-
-  if (Number(updated.changes) !== 1) return null;
-  return findPaymentAttemptById(orderId, attemptId);
+    .run(
+      now + retryDelayMs(expected.reconcile_attempt_count),
+      error.slice(0, 500),
+      now,
+      expected.id,
+      expected.status,
+      expected.reconcile_attempt_count,
+    );
+  return Number(result.changes) === 1;
 }
 
 export {
-  createPaymentAttempt,
-  findPaymentAttemptById,
-  findProcessingPaymentAttempt,
-  markPaymentAttemptFailed,
-  markPaymentAttemptSucceeded,
+  beginPayment,
+  dueAttempts,
+  processing,
+  resolveAttempt,
+  rowByKey,
+  scheduleAttempt,
+  updateProviderReference,
 };
+export type { BeginPaymentResult };

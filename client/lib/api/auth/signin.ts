@@ -7,11 +7,16 @@ import {
   type EmailCodeInput,
   type SigninResponse,
 } from "./types";
+import { setAccessToken } from "./session";
 
-export function signin(input: Credentials): Promise<SigninResponse> {
-  return postAuthJson("/signin", input, parseSignin);
+export async function signin(input: Credentials): Promise<SigninResponse> {
+  const response = await postAuthJson("/signin", input, parseSignin);
+  if (!("codeRequired" in response)) setAccessToken(response.accessToken);
+  return response;
 }
 
-export function signinWithCode(input: EmailCodeInput): Promise<AuthenticationResponse> {
-  return postAuthJson("/signin/code", input, parseAuthentication);
+export async function signinWithCode(input: EmailCodeInput): Promise<AuthenticationResponse> {
+  const response = await postAuthJson("/signin/code", input, parseAuthentication);
+  setAccessToken(response.accessToken);
+  return response;
 }

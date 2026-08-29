@@ -1,13 +1,18 @@
 import { database } from "../database.js";
 import { toTicket } from "./ticket.js";
 import type {
+  ConvergenceOutcome,
   CreateTicketInput,
   CreateTicketResult,
+  OrderEvent,
+  ReleaseReservationOutcome,
+  Reservation,
+  ReserveTicketResult,
   Ticket,
   TicketFilters,
   TicketPage,
-  UpdateTicketPriceResult,
   TicketRow,
+  UpdateTicketPriceResult,
 } from "./ticket.js";
 
 const ticketColumns = `
@@ -44,9 +49,16 @@ function readTicketById(id: string): TicketRow | null {
   return row ?? null;
 }
 
-function readTicketByOwnerKey(ownerId: string, idempotencyKey: string): TicketRow | null {
+function readTicketByOwnerKey(
+  ownerId: string,
+  idempotencyKey: string,
+): TicketRow | null {
   const row = database
-    .prepare(`SELECT ${ticketColumns} FROM tickets WHERE owner_id = ? AND idempotency_key = ?`)
+    .prepare(
+      `SELECT ${ticketColumns}
+       FROM tickets
+       WHERE owner_id = ? AND idempotency_key = ?`,
+    )
     .get(ownerId, idempotencyKey) as TicketRow | undefined;
   return row ?? null;
 }
@@ -56,7 +68,35 @@ function commit<T>(result: T): T {
   return result;
 }
 
-function pageFor(tickets: Ticket[], page: number, pageSize: number, total: number): TicketPage {
+function toReservation(row: TicketRow): Reservation {
+  if (!row.locked_by_order_id || row.lock_expires_at === null) {
+    throw new Error("Ticket does not have an active reservation");
+  }
+  return {
+    ticketId: row.id,
+    orderId: row.locked_by_order_id,
+    expiresAt: new Date(row.lock_expires_at).toISOString(),
+    priceCents: row.price_cents,
+    currency: row.currency,
+    ticket: {
+      eventName: row.event_name,
+      eventStartsAt: new Date(row.event_starts_at).toISOString(),
+      eventEndsAt:
+        row.event_ends_at === null
+          ? null
+          : new Date(row.event_ends_at).toISOString(),
+      place: row.place,
+      ticketInfo: row.ticket_info,
+    },
+  };
+}
+
+function pageFor(
+  tickets: Ticket[],
+  page: number,
+  pageSize: number,
+  total: number,
+): TicketPage {
   return {
     tickets,
     pagination: {
@@ -149,12 +189,16 @@ function createTicket(input: CreateTicketInput): CreateTicketResult {
 
     if (Number(inserted.changes) === 1) {
       const row = readTicketById(input.id);
-      if (!row) throw new Error("Created ticket could not be read");
+      if (!row) {
+        throw new Error("Created ticket could not be read");
+      }
       return commit({ outcome: "created", ticket: toTicket(row) });
     }
 
     const row = readTicketByOwnerKey(input.ownerId, input.idempotencyKey);
-    if (!row) throw new Error("Idempotent ticket could not be read");
+    if (!row) {
+      throw new Error("Idempotent ticket could not be read");
+    }
     if (row.request_fingerprint === input.requestFingerprint) {
       return commit({ outcome: "replayed", ticket: toTicket(row) });
     }
@@ -183,7 +227,9 @@ function updateTicketPrice(
 
     if (Number(updated.changes) === 1) {
       const row = readTicketById(ticketId);
-      if (!row) throw new Error("Updated ticket could not be read");
+      if (!row) {
+        throw new Error("Updated ticket could not be read");
+      }
       return commit({ outcome: "updated", ticket: toTicket(row) });
     }
 
@@ -191,7 +237,9 @@ function updateTicketPrice(
       .prepare("SELECT id FROM tickets WHERE id = ? AND owner_id = ?")
       .get(ticketId, ownerId) as { id: string } | undefined;
 
-    if (!row) return commit({ outcome: "not_found" });
+    if (!row) {
+      return commit({ outcome: "not_found" });
+    }
     return commit({ outcome: "unavailable" });
   } catch (error) {
     database.exec("ROLLBACK");
@@ -212,12 +260,25 @@ function listAvailableTickets(filters: TicketFilters): TicketPage {
        ORDER BY event_starts_at ASC, id ASC
        LIMIT ? OFFSET ?`,
     )
-    .all(...predicates.bindings, filters.pageSize, (filters.page - 1) * filters.pageSize) as TicketRow[];
+    .all(
+      ...predicates.bindings,
+      filters.pageSize,
+      (filters.page - 1) * filters.pageSize,
+    ) as TicketRow[];
 
-  return pageFor(rows.map(toTicket), filters.page, filters.pageSize, count.total);
+  return pageFor(
+    rows.map(toTicket),
+    filters.page,
+    filters.pageSize,
+    count.total,
+  );
 }
 
-function listOwnedTickets(ownerId: string, page: number, pageSize: number): TicketPage {
+function listOwnedTickets(
+  ownerId: string,
+  page: number,
+  pageSize: number,
+): TicketPage {
   const count = database
     .prepare("SELECT COUNT(*) AS total FROM tickets WHERE owner_id = ?")
     .get(ownerId) as { total: number };
@@ -231,7 +292,12 @@ function listOwnedTickets(ownerId: string, page: number, pageSize: number): Tick
     )
     .all(ownerId, pageSize, (page - 1) * pageSize) as TicketRow[];
 
-  return pageFor(rows.map(toTicket), page, pageSize, count.total);
+  return pageFor(
+    rows.map(toTicket),
+    page,
+    pageSize,
+    count.total,
+  );
 }
 
 function findTicketById(id: string): Ticket | null {
@@ -239,4 +305,248 @@ function findTicketById(id: string): Ticket | null {
   return row ? toTicket(row) : null;
 }
 
-export { createTicket, findTicketById, listAvailableTickets, listOwnedTickets, updateTicketPrice };
+function reserveTicket(
+  ticketId: string,
+  orderId: string,
+  expiresAt: number,
+): ReserveTicketResult {
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    const row = readTicketById(ticketId);
+    if (!row) {
+      return commit({ outcome: "not_found" });
+    }
+
+    const sameReservation =
+      row.status === "reserved" && row.locked_by_order_id === orderId;
+    if (sameReservation && row.lock_expires_at !== expiresAt) {
+      return commit({ outcome: "conflict" });
+    }
+    if (sameReservation) {
+      return commit({
+        outcome: "replayed",
+        reservation: toReservation(row),
+      });
+    }
+    if (row.status !== "available") {
+      return commit({ outcome: "unavailable" });
+    }
+
+    const otherLock = database
+      .prepare(
+        `SELECT id
+         FROM tickets
+         WHERE locked_by_order_id = ? AND id <> ?`,
+      )
+      .get(orderId, ticketId);
+    if (otherLock) {
+      return commit({ outcome: "unavailable" });
+    }
+
+    const updated = database
+      .prepare(
+        `UPDATE tickets
+         SET status = 'reserved',
+             locked_by_order_id = ?,
+             lock_expires_at = ?,
+             updated_at = ?
+         WHERE id = ? AND status = 'available'`,
+      )
+      .run(orderId, expiresAt, Date.now(), ticketId);
+    if (Number(updated.changes) !== 1) {
+      throw new Error("Reservation guard changed unexpectedly");
+    }
+
+    const reserved = readTicketById(ticketId);
+    if (!reserved) {
+      throw new Error("Reserved ticket could not be read");
+    }
+    return commit({
+      outcome: "reserved",
+      reservation: toReservation(reserved),
+    });
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function findReservation(
+  ticketId: string,
+  orderId: string,
+): Reservation | null {
+  const row = readTicketById(ticketId);
+  if (
+    !row ||
+    row.status !== "reserved" ||
+    row.locked_by_order_id !== orderId
+  ) {
+    return null;
+  }
+  return toReservation(row);
+}
+
+function releaseReservation(
+  ticketId: string,
+  orderId: string,
+): ReleaseReservationOutcome {
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    const row = readTicketById(ticketId);
+    if (!row) {
+      return commit("missing");
+    }
+    if (row.status === "available") {
+      return commit("already_available");
+    }
+    if (row.status === "sold") {
+      return commit("sold");
+    }
+    if (row.locked_by_order_id !== orderId) {
+      return commit("not_matching");
+    }
+
+    const released = database
+      .prepare(
+        `UPDATE tickets
+         SET status = 'available',
+             locked_by_order_id = NULL,
+             lock_expires_at = NULL,
+             updated_at = ?
+         WHERE id = ?
+           AND status = 'reserved'
+           AND locked_by_order_id = ?`,
+      )
+      .run(Date.now(), ticketId, orderId);
+    if (Number(released.changes) !== 1) {
+      throw new Error("Release guard changed unexpectedly");
+    }
+    return commit("released");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function convergenceOutcome(
+  row: TicketRow | null,
+  event: OrderEvent,
+): ConvergenceOutcome {
+  if (!row) {
+    return "missing";
+  }
+  if (row.status === "available") {
+    return "already_available";
+  }
+  if (row.locked_by_order_id !== event.aggregateId) {
+    return "not_matching";
+  }
+  if (row.status === "sold") {
+    return "already_sold";
+  }
+  return event.eventType === "order.completed" ? "sold" : "released";
+}
+
+function applySoldConvergence(event: OrderEvent): void {
+  const changed = database
+    .prepare(
+      `UPDATE tickets
+       SET status = 'sold',
+           lock_expires_at = NULL,
+           updated_at = ?
+       WHERE id = ?
+         AND status = 'reserved'
+         AND locked_by_order_id = ?`,
+    )
+    .run(Date.now(), event.payload.ticketId, event.aggregateId);
+  if (Number(changed.changes) !== 1) {
+    throw new Error("Sold convergence guard changed unexpectedly");
+  }
+}
+
+function applyReleaseConvergence(event: OrderEvent): void {
+  const changed = database
+    .prepare(
+      `UPDATE tickets
+       SET status = 'available',
+           locked_by_order_id = NULL,
+           lock_expires_at = NULL,
+           updated_at = ?
+       WHERE id = ?
+         AND status = 'reserved'
+         AND locked_by_order_id = ?`,
+    )
+    .run(Date.now(), event.payload.ticketId, event.aggregateId);
+  if (Number(changed.changes) !== 1) {
+    throw new Error("Release convergence guard changed unexpectedly");
+  }
+}
+
+function consumeOrderEvent(
+  event: OrderEvent,
+): { duplicate: boolean; outcome?: ConvergenceOutcome } {
+  const consumer = "tickets-order-convergence";
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    const duplicate = database
+      .prepare(
+        `SELECT 1
+         FROM inbox_messages
+         WHERE consumer = ? AND message_id = ?`,
+      )
+      .get(consumer, event.messageId);
+    if (duplicate) {
+      return commit({ duplicate: true });
+    }
+
+    const row = readTicketById(event.payload.ticketId);
+    const outcome = convergenceOutcome(row, event);
+    if (outcome === "sold") {
+      applySoldConvergence(event);
+    } else if (outcome === "released") {
+      applyReleaseConvergence(event);
+    }
+
+    database
+      .prepare(
+        `INSERT INTO inbox_messages (
+           consumer,
+           message_id,
+           event_type,
+           event_version,
+           aggregate_id,
+           aggregate_version,
+           ticket_id,
+           outcome,
+           processed_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        consumer,
+        event.messageId,
+        event.eventType,
+        event.eventVersion,
+        event.aggregateId,
+        event.aggregateVersion,
+        event.payload.ticketId,
+        outcome,
+        Date.now(),
+      );
+    return commit({ duplicate: false, outcome });
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export {
+  consumeOrderEvent,
+  createTicket,
+  findReservation,
+  findTicketById,
+  listAvailableTickets,
+  listOwnedTickets,
+  releaseReservation,
+  reserveTicket,
+  updateTicketPrice,
+};

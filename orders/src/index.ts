@@ -1,7 +1,43 @@
 import { app } from "./app.js";
+import { startWorkers, stopWorkers } from "./workers.js";
 
-const port = Number(process.env.PORT ?? 3003);
+function positiveIntegerSetting(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
 
-app.listen(port, "0.0.0.0", () => {
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+const port = positiveIntegerSetting("PORT", 3003);
+
+await startWorkers();
+const server = app.listen(port, "0.0.0.0", () => {
   console.log(`Orders service listening on port ${port}`);
 });
+
+let stopping = false;
+
+async function stop(): Promise<void> {
+  if (stopping) return;
+  stopping = true;
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+  await stopWorkers();
+}
+
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.on(signal, () => {
+    void stop().then(
+      () => process.exit(0),
+      (error) => {
+        console.error("Orders shutdown failed", error);
+        process.exit(1);
+      },
+    );
+  });
+}

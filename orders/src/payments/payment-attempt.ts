@@ -1,51 +1,35 @@
-/** One provider attempt moves once from `processing` to `succeeded` or `failed`. */
-type PaymentAttemptStatus = "processing" | "succeeded" | "failed";
+type PaymentStatus = "processing" | "succeeded" | "failed";
+type ProviderScenario =
+  | "local.success"
+  | "local.decline"
+  | "local.processing-success"
+  | "local.processing-decline";
 
-/**
- * Public record of one payment-provider submission.
- * Successful attempts record a provider reference; failed attempts record a failure code.
- */
+type PaymentAttemptRow = {
+  id: string;
+  order_id: string;
+  status: PaymentStatus;
+  provider_scenario: ProviderScenario;
+  provider_reference: string | null;
+  failure_code: string | null;
+  idempotency_key: string;
+  request_fingerprint: string;
+  reconcile_attempt_count: number;
+  next_reconcile_at: number | null;
+  last_reconcile_error: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
 type PaymentAttempt = {
   id: string;
   orderId: string;
-  status: PaymentAttemptStatus;
+  status: PaymentStatus;
   providerReference: string | null;
   failureCode: string | null;
   createdAt: string;
   updatedAt: string;
 };
-
-/** SQLite shape, including retry metadata that is not exposed on `PaymentAttempt`. */
-type PaymentAttemptRow = {
-  id: string;
-  order_id: string;
-  status: PaymentAttemptStatus;
-  provider_reference: string | null;
-  failure_code: string | null;
-  idempotency_key: string;
-  request_fingerprint: string;
-  created_at: number;
-  updated_at: number;
-};
-
-/** Data needed to create or safely replay one payment attempt. */
-type CreatePaymentAttemptInput = {
-  id: string;
-  orderId: string;
-  idempotencyKey: string;
-  requestFingerprint: string;
-};
-
-/**
- * `replayed` returns the prior attempt for the same request.
- * `conflict` means one key described different data; `already_processing` means
- * a different request already owns the Order's single processing slot.
- */
-type CreatePaymentAttemptResult =
-  | { outcome: "created"; attempt: PaymentAttempt }
-  | { outcome: "replayed"; attempt: PaymentAttempt }
-  | { outcome: "conflict" }
-  | { outcome: "already_processing"; attempt: PaymentAttempt };
 
 function toPaymentAttempt(row: PaymentAttemptRow): PaymentAttempt {
   return {
@@ -61,9 +45,8 @@ function toPaymentAttempt(row: PaymentAttemptRow): PaymentAttempt {
 
 export { toPaymentAttempt };
 export type {
-  CreatePaymentAttemptInput,
-  CreatePaymentAttemptResult,
   PaymentAttempt,
   PaymentAttemptRow,
-  PaymentAttemptStatus,
+  PaymentStatus,
+  ProviderScenario,
 };

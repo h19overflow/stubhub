@@ -1,4 +1,5 @@
 import { database } from "../database.js";
+import { retryDelayMs } from "../retry-delay.js";
 import { toOutboxMessage } from "./outbox-message.js";
 import type {
   EnqueueOutboxMessageInput,
@@ -18,6 +19,7 @@ const outboxColumns = `
   updated_at,
   published_at,
   attempt_count,
+  next_attempt_at,
   last_error
 `;
 
@@ -41,8 +43,9 @@ function enqueueOutboxMessage(input: EnqueueOutboxMessageInput): OutboxMessage {
       event_version,
       payload,
       created_at,
-      updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      updated_at,
+      next_attempt_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     input.id,
     input.aggregateType,
@@ -53,6 +56,7 @@ function enqueueOutboxMessage(input: EnqueueOutboxMessageInput): OutboxMessage {
     payload,
     now,
     now,
+    now,
   );
 
   return {
@@ -61,12 +65,13 @@ function enqueueOutboxMessage(input: EnqueueOutboxMessageInput): OutboxMessage {
     updatedAt: new Date(now).toISOString(),
     publishedAt: null,
     attemptCount: 0,
+    nextAttemptAt: new Date(now).toISOString(),
     lastError: null,
   };
 }
 
-/** Returns the oldest unpublished rows for one publisher batch. */
-function listUnpublishedOutboxMessages(limit: number): OutboxMessage[] {
+/** Returns due unpublished rows for one publisher batch. */
+function listUnpublishedOutboxMessages(now: number, limit: number): OutboxMessage[] {
   if (!Number.isSafeInteger(limit) || limit <= 0) {
     throw new RangeError("Outbox batch limit must be a positive safe integer");
   }
@@ -74,10 +79,10 @@ function listUnpublishedOutboxMessages(limit: number): OutboxMessage[] {
   const rows = database.prepare(`
     SELECT ${outboxColumns}
     FROM outbox_messages
-    WHERE published_at IS NULL
-    ORDER BY created_at, id
+    WHERE published_at IS NULL AND next_attempt_at <= ?
+    ORDER BY next_attempt_at, created_at, id
     LIMIT ?
-  `).all(limit) as unknown as OutboxMessageRow[];
+  `).all(now, limit) as unknown as OutboxMessageRow[];
   return rows.map(toOutboxMessage);
 }
 
@@ -95,16 +100,24 @@ function markOutboxMessagePublished(id: string): boolean {
   return Number(result.changes) === 1;
 }
 
-/**
- * Keeps a failed message unpublished while recording retry diagnostics.
- * Returns false when the row is missing or was already published.
- */
-function recordOutboxMessageFailure(id: string, error: string): boolean {
+// Retry only if the unpublished row still matches the attempt we read.
+function recordOutboxMessageFailure(
+  message: OutboxMessage,
+  error: string,
+  now: number,
+): boolean {
   const result = database.prepare(`
     UPDATE outbox_messages
-    SET attempt_count = attempt_count + 1, last_error = ?, updated_at = ?
-    WHERE id = ? AND published_at IS NULL
-  `).run(error, Date.now(), id);
+    SET attempt_count = attempt_count + 1, next_attempt_at = ?,
+        last_error = ?, updated_at = ?
+    WHERE id = ? AND published_at IS NULL AND attempt_count = ?
+  `).run(
+    now + retryDelayMs(message.attemptCount),
+    error.slice(0, 500),
+    now,
+    message.id,
+    message.attemptCount,
+  );
   return Number(result.changes) === 1;
 }
 

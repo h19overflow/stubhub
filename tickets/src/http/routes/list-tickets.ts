@@ -1,4 +1,3 @@
-import { requireAuth } from "@stubhub/common";
 import { Router } from "express";
 import { HttpError } from "../error-handler.js";
 import { listTicketsQuerySchema } from "../../tickets/schemas.js";
@@ -6,9 +5,15 @@ import { listAvailableTickets } from "../../tickets/ticket-repo.js";
 
 const router = Router();
 
-router.get("/tickets", requireAuth, (request, response) => {
+router.get("/tickets", (request, response) => {
   const parsed = listTicketsQuerySchema.safeParse(request.query);
-  if (!parsed.success) throw new HttpError(400, "Invalid ticket filters");
+  if (!parsed.success) {
+    throw new HttpError(
+      400,
+      "Invalid ticket filters",
+      "invalid_filters",
+    );
+  }
 
   const { startsAfter, startsBefore, ...filters } = parsed.data;
   response.json(

@@ -2,7 +2,6 @@ type TicketStatus = "available" | "reserved" | "sold";
 
 type Ticket = {
   id: string;
-  ownerId: string;
   eventName: string;
   description: string;
   eventStartsAt: string;
@@ -24,7 +23,10 @@ type TicketPagination = {
   totalPages: number;
 };
 
-type TicketPage = { tickets: Ticket[]; pagination: TicketPagination };
+type TicketPage = {
+  tickets: Ticket[];
+  pagination: TicketPagination;
+};
 
 type TicketRow = {
   id: string;
@@ -83,14 +85,63 @@ type UpdateTicketPriceResult =
   | { outcome: "not_found" }
   | { outcome: "unavailable" };
 
+type Reservation = {
+  ticketId: string;
+  orderId: string;
+  expiresAt: string;
+  priceCents: number;
+  currency: "USD";
+  ticket: {
+    eventName: string;
+    eventStartsAt: string;
+    eventEndsAt: string | null;
+    place: string;
+    ticketInfo: string;
+  };
+};
+
+type ReserveTicketResult =
+  | { outcome: "reserved" | "replayed"; reservation: Reservation }
+  | { outcome: "not_found" | "conflict" | "unavailable" };
+
+type ReleaseReservationOutcome =
+  | "released"
+  | "already_available"
+  | "not_matching"
+  | "sold"
+  | "missing";
+
+type OrderEvent = {
+  messageId: string;
+  eventType: "order.completed" | "order.expired";
+  eventVersion: 1;
+  aggregateType: "order";
+  aggregateId: string;
+  aggregateVersion: number;
+  occurredAt: string;
+  payload: {
+    ticketId: string;
+  };
+};
+
+type ConvergenceOutcome =
+  | "sold"
+  | "released"
+  | "already_sold"
+  | "already_available"
+  | "not_matching"
+  | "missing";
+
 function toTicket(row: TicketRow): Ticket {
   return {
     id: row.id,
-    ownerId: row.owner_id,
     eventName: row.event_name,
     description: row.description,
     eventStartsAt: new Date(row.event_starts_at).toISOString(),
-    eventEndsAt: row.event_ends_at === null ? null : new Date(row.event_ends_at).toISOString(),
+    eventEndsAt:
+      row.event_ends_at === null
+        ? null
+        : new Date(row.event_ends_at).toISOString(),
     ticketInfo: row.ticket_info,
     place: row.place,
     priceCents: row.price_cents,
@@ -104,8 +155,13 @@ function toTicket(row: TicketRow): Ticket {
 
 export { toTicket };
 export type {
+  ConvergenceOutcome,
   CreateTicketInput,
   CreateTicketResult,
+  OrderEvent,
+  ReleaseReservationOutcome,
+  Reservation,
+  ReserveTicketResult,
   Ticket,
   TicketFilters,
   TicketPage,

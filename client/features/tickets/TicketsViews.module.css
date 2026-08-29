@@ -1,0 +1,317 @@
+.heading {
+  margin-bottom: 1.5rem;
+}
+
+.heading h1 {
+  margin: 0.25rem 0;
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+}
+
+.heading p {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.eyebrow {
+  color: var(--color-accent) !important;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: 2fr 1.2fr repeat(4, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+
+.card,
+.owned {
+  overflow: hidden;
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  transition: transform var(--motion-fast) var(--ease-out-quart),
+    box-shadow var(--motion-fast) var(--ease-out-quart),
+    background-color var(--motion-fast) var(--ease-out-quart);
+}
+
+@media (hover: hover) {
+  .card:hover,
+  .owned:hover {
+    background: var(--color-surface-hover);
+    box-shadow: var(--shadow-card-hover);
+    transform: translateY(-2px);
+  }
+}
+.cardImage {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+}
+
+.cardBody {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem;
+}
+
+.cardBody h2,
+.owned h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.cardBody p,
+.cardBody time,
+.owned p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.cardBody strong {
+  margin-top: 0.35rem;
+}
+
+.status {
+  width: fit-content;
+  padding: 0.25rem 0.55rem;
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+  border-radius: var(--radius-round);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.available {
+  color: var(--color-accent);
+}
+
+.reserved {
+  color: var(--color-warning);
+}
+
+.sold {
+  color: var(--color-text-subtle);
+}
+
+.feedback {
+  display: grid;
+  place-items: center;
+  gap: 0.75rem;
+  min-height: 12rem;
+  padding: 2rem;
+  color: var(--color-text-muted);
+  text-align: center;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(20rem, 0.85fr);
+  gap: 2rem;
+  align-items: start;
+}
+
+.detail > img {
+  width: 100%;
+  max-height: 36rem;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.detail h1 {
+  margin: 0.65rem 0;
+  font-size: clamp(2rem, 5vw, 3.5rem);
+}
+
+.detail p {
+  color: var(--color-text-muted);
+}
+
+.detail dl {
+  display: grid;
+  grid-template-columns: 5rem 1fr;
+  gap: 0.6rem;
+  padding: 1rem 0;
+}
+
+.detail dt {
+  color: var(--color-text-subtle);
+}
+
+.detail dd {
+  margin: 0;
+}
+
+.createForm {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  max-width: 54rem;
+  padding: 1.25rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+}
+
+.createForm > label {
+  display: grid;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.createForm textarea,
+.createForm input[type="file"],
+.priceEdit input {
+  width: 100%;
+  padding: 0.75rem;
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.createForm textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+.createForm > label:nth-of-type(1),
+.createForm > label:nth-of-type(2),
+.preview,
+.createForm > button,
+.createForm > .error {
+  grid-column: 1 / -1;
+}
+
+.preview {
+  width: min(100%, 32rem);
+  max-height: 20rem;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+}
+
+.error {
+  color: var(--color-error) !important;
+}
+
+.success {
+  color: var(--color-accent) !important;
+}
+
+.mineSection {
+  margin-top: 1.75rem;
+}
+
+.mineSection > h2 {
+  text-transform: capitalize;
+}
+
+.owned {
+  display: grid;
+  grid-template-columns: 10rem 1fr;
+  margin-bottom: 0.75rem;
+}
+
+.owned > img {
+  width: 100%;
+  height: 100%;
+  min-height: 9rem;
+  object-fit: cover;
+}
+
+.owned > div {
+  padding: 1rem;
+}
+
+.priceEdit {
+  display: flex;
+  align-items: end;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.priceEdit label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+@media (max-width: 900px) {
+  .filters {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .detail {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .filters,
+  .grid,
+  .createForm {
+    grid-template-columns: 1fr;
+  }
+
+  .createForm > * {
+    grid-column: 1 !important;
+  }
+
+  .owned {
+    grid-template-columns: 7rem 1fr;
+  }
+
+  .priceEdit {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pagination {
+    justify-content: space-between;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .owned {
+    transition: none;
+  }
+}
+
+@media (hover: hover) and (prefers-reduced-motion: reduce) {
+  .card:hover,
+  .owned:hover {
+    transform: none;
+  }
+}

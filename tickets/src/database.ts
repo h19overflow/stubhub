@@ -18,15 +18,23 @@ type AppliedMigration = {
 };
 
 const migrationsPath = fileURLToPath(new URL("../migrations/", import.meta.url));
-const defaultPath = fileURLToPath(new URL("../data/tickets.sqlite", import.meta.url));
+const defaultPath = fileURLToPath(
+  new URL("../data/tickets.sqlite", import.meta.url),
+);
 const databasePath = process.env.TICKETS_DB_PATH ?? defaultPath;
-if (databasePath !== ":memory:") mkdirSync(dirname(databasePath), { recursive: true });
+if (databasePath !== ":memory:") {
+  mkdirSync(dirname(databasePath), { recursive: true });
+}
 
 function loadMigrations(): Migration[] {
   const migrations: Migration[] = [];
-  for (const name of readdirSync(migrationsPath).filter((file) => file.endsWith(".sql")).sort()) {
+  for (const name of readdirSync(migrationsPath)
+    .filter((file) => file.endsWith(".sql"))
+    .sort()) {
     const match = /^(\d{3})_[a-z0-9_]+\.sql$/.exec(name);
-    if (!match) throw new Error(`Invalid Tickets migration filename: ${name}`);
+    if (!match) {
+      throw new Error(`Invalid Tickets migration filename: ${name}`);
+    }
     const sql = readFileSync(resolve(migrationsPath, name), "utf8");
     migrations.push({
       version: Number(match[1]),
@@ -44,19 +52,37 @@ function loadMigrations(): Migration[] {
   return migrations;
 }
 
-function adoptLegacyVersion(database: DatabaseSync, migrations: Migration[]): void {
-  const { user_version: legacyVersion } = database.prepare("PRAGMA user_version").get() as {
-    user_version: number;
-  };
-  const { count } = database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get() as {
-    count: number;
-  };
-  if (legacyVersion === 0 || count !== 0) return;
-  if (legacyVersion > migrations.length) {
-    throw new Error(`Tickets database version ${legacyVersion} has no matching migration files`);
+function adoptLegacyVersion(
+  database: DatabaseSync,
+  migrations: Migration[],
+): void {
+  const { user_version: legacyVersion } = database
+    .prepare("PRAGMA user_version")
+    .get() as {
+      user_version: number;
+    };
+  const { count } = database
+    .prepare("SELECT COUNT(*) AS count FROM schema_migrations")
+    .get() as {
+      count: number;
+    };
+  if (legacyVersion === 0 || count !== 0) {
+    return;
   }
-  if (!database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tickets'").get()) {
-    throw new Error("Tickets database has a legacy version but no tickets table");
+  if (legacyVersion > migrations.length) {
+    throw new Error(
+      `Tickets database version ${legacyVersion} has no matching migration files`,
+    );
+  }
+  const ticketsTable = database
+    .prepare(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tickets'",
+    )
+    .get();
+  if (!ticketsTable) {
+    throw new Error(
+      "Tickets database has a legacy version but no tickets table",
+    );
   }
 
   const record = database.prepare(`
@@ -75,7 +101,9 @@ function adoptLegacyVersion(database: DatabaseSync, migrations: Migration[]): vo
   }
 }
 
-function runMigrations(database: DatabaseSync): { applied: number; total: number } {
+function runMigrations(
+  database: DatabaseSync,
+): { applied: number; total: number } {
   const migrations = loadMigrations();
   database.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -87,21 +115,36 @@ function runMigrations(database: DatabaseSync): { applied: number; total: number
   `);
   adoptLegacyVersion(database, migrations);
 
-  const applied = database.prepare(`
-    SELECT version, name, checksum
-    FROM schema_migrations
-    ORDER BY version
-  `).all() as AppliedMigration[];
+  const applied = database
+    .prepare(
+      `SELECT version, name, checksum
+       FROM schema_migrations
+       ORDER BY version`,
+    )
+    .all() as AppliedMigration[];
   applied.forEach((recorded, index) => {
     if (recorded.version !== index + 1) {
-      throw new Error(`Tickets migration ledger has a gap before version ${recorded.version}`);
+      throw new Error(
+        `Tickets migration ledger has a gap before version ${recorded.version}`,
+      );
     }
   });
   for (const recorded of applied) {
-    const migration = migrations.find(({ version }) => version === recorded.version);
-    if (!migration) throw new Error(`Applied Tickets migration ${recorded.version} is missing`);
-    if (migration.name !== recorded.name || migration.checksum !== recorded.checksum) {
-      throw new Error(`Applied Tickets migration ${recorded.version} was modified`);
+    const migration = migrations.find(
+      ({ version }) => version === recorded.version,
+    );
+    if (!migration) {
+      throw new Error(
+        `Applied Tickets migration ${recorded.version} is missing`,
+      );
+    }
+    if (
+      migration.name !== recorded.name ||
+      migration.checksum !== recorded.checksum
+    ) {
+      throw new Error(
+        `Applied Tickets migration ${recorded.version} was modified`,
+      );
     }
   }
 
@@ -110,10 +153,21 @@ function runMigrations(database: DatabaseSync): { applied: number; total: number
     database.exec("BEGIN IMMEDIATE");
     try {
       database.exec(migration.sql);
-      database.prepare(`
-        INSERT INTO schema_migrations (version, name, checksum, applied_at)
-        VALUES (?, ?, ?, ?)
-      `).run(migration.version, migration.name, migration.checksum, Date.now());
+      database
+        .prepare(
+          `INSERT INTO schema_migrations (
+             version,
+             name,
+             checksum,
+             applied_at
+           ) VALUES (?, ?, ?, ?)`,
+        )
+        .run(
+          migration.version,
+          migration.name,
+          migration.checksum,
+          Date.now(),
+        );
       database.exec(`PRAGMA user_version = ${migration.version}`);
       database.exec("COMMIT");
       appliedNow += 1;
@@ -130,7 +184,9 @@ const database = new DatabaseSync(databasePath, { timeout: 5_000 });
 database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
 const migrationResult = runMigrations(database);
 
-const isDirectRun = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isDirectRun =
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isDirectRun) {
   console.log(
     `Tickets database is current: ${migrationResult.total} migrations, ${migrationResult.applied} applied`,

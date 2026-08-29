@@ -12,9 +12,9 @@ type SignedInLandingProps = {
 };
 
 const navigation = [
-  { href: "#market", label: "Marketplace" },
-  { href: "#selling", label: "Selling" },
-  { href: "#orders", label: "My orders" },
+  { href: "/tickets", label: "Marketplace" },
+  { href: "/tickets/new", label: "Selling" },
+  { href: "/orders", label: "My orders" },
 ] as const;
 
 const featuredEvents = [
@@ -70,10 +70,10 @@ export function SignedInLanding({ email }: SignedInLandingProps) {
             </h1>
             <p>Discover and sell tickets to unforgettable live events.</p>
             <div className={styles.heroActions}>
-              <ActionLink href="#market" variant="primary">
+              <ActionLink href="/tickets" variant="primary">
                 Explore tickets
               </ActionLink>
-              <ActionLink href="#selling" variant="secondary">
+              <ActionLink href="/tickets/new" variant="secondary">
                 Sell a ticket
               </ActionLink>
             </div>

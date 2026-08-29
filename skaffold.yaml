@@ -52,6 +52,10 @@ build:
         manual:
           - src: "orders/src/**/*.ts"
             dest: /app/orders/src
+          - src: "common/src/**/*.ts"
+            dest: /app/common/src
+          - src: "orders/migrations/**/*.sql"
+            dest: /app/orders/migrations
 manifests:
   rawYaml:
     - infra/k8s/00-namespace.yaml

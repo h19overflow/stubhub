@@ -36,13 +36,19 @@ USER 1000:1000
 EXPOSE 3002
 CMD ["npm", "run", "dev", "--workspace", "@stubhub/tickets"]
 
-FROM workspace-deps AS orders-dev
+FROM common-build AS orders-dev
 COPY --chown=node:node orders ./orders
 USER 1000:1000
 EXPOSE 3003
 CMD ["npm", "run", "dev", "--workspace", "@stubhub/orders"]
 
 FROM workspace-deps AS client-build
+ARG IDENTITY_SERVICE_URL=http://identity:3001
+ARG TICKETS_SERVICE_URL=http://tickets:3002
+ARG ORDERS_SERVICE_URL=http://orders:3003
+ENV IDENTITY_SERVICE_URL=$IDENTITY_SERVICE_URL
+ENV TICKETS_SERVICE_URL=$TICKETS_SERVICE_URL
+ENV ORDERS_SERVICE_URL=$ORDERS_SERVICE_URL
 COPY client ./client
 RUN npm run build --workspace @stubhub/client
 
@@ -54,7 +60,7 @@ FROM common-build AS tickets-build
 COPY tickets ./tickets
 RUN npm run build --workspace @stubhub/tickets
 
-FROM workspace-deps AS orders-build
+FROM common-build AS orders-build
 COPY orders ./orders
 RUN npm run build --workspace @stubhub/orders
 
@@ -117,6 +123,9 @@ WORKDIR /app
 COPY --from=orders-prod-deps /app/node_modules ./node_modules
 COPY --from=orders-build /app/orders/package.json ./orders/package.json
 COPY --from=orders-build /app/orders/dist ./orders/dist
+COPY --from=orders-build /app/orders/migrations ./orders/migrations
+COPY --from=common-build /app/common/package.json ./common/package.json
+COPY --from=common-build /app/common/dist ./common/dist
 USER 1000:1000
 EXPOSE 3003
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD node -e "fetch('http://127.0.0.1:3003/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"

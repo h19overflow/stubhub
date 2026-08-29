@@ -1,0 +1,258 @@
+.heading {
+  margin-bottom: 1.5rem;
+}
+
+.heading p {
+  margin: 0;
+  color: var(--color-accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.heading h1 {
+  margin: 0.25rem 0;
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+}
+
+.heading span {
+  color: var(--color-text-muted);
+}
+
+.list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.orderCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem;
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  transition: transform var(--motion-fast) var(--ease-out-quart),
+    box-shadow var(--motion-fast) var(--ease-out-quart),
+    background-color var(--motion-fast) var(--ease-out-quart);
+}
+
+@media (hover: hover) {
+  .orderCard:hover {
+    background: var(--color-surface-hover);
+    box-shadow: var(--shadow-card-hover);
+    transform: translateY(-2px);
+  }
+}
+
+.orderCard h2 {
+  margin: 0.6rem 0 0.25rem;
+  font-size: 1.05rem;
+}
+
+.orderCard p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.amount {
+  display: grid;
+  gap: 0.35rem;
+  text-align: right;
+}
+
+.amount small {
+  color: var(--color-text-muted);
+}
+
+.status {
+  width: fit-content;
+  padding: 0.25rem 0.55rem;
+  color: var(--color-text-muted);
+  background: var(--color-surface-hover);
+  border-radius: var(--radius-round);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pending {
+  color: var(--color-warning);
+}
+
+.payment_processing {
+  color: var(--color-info);
+}
+
+.complete {
+  color: var(--color-accent);
+}
+
+.expired {
+  color: var(--color-text-subtle);
+}
+
+.feedback {
+  display: grid;
+  place-items: center;
+  gap: 0.75rem;
+  min-height: 12rem;
+  padding: 2rem;
+  color: var(--color-text-muted);
+  text-align: center;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+}
+
+.detail {
+  max-width: 58rem;
+  margin: 0 auto;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.detail > header {
+  padding: 1.5rem;
+  background: var(--color-surface-raised);
+}
+
+.detail > header p {
+  color: var(--color-text-subtle);
+  font-size: 0.75rem;
+}
+
+.detail h1 {
+  margin: 0.5rem 0;
+  font-size: clamp(1.75rem, 5vw, 3rem);
+}
+
+.detail > header > span:last-child {
+  color: var(--color-text-muted);
+}
+
+.summary {
+  padding: 1.5rem;
+}
+
+.summary dl {
+  display: grid;
+  grid-template-columns: 10rem 1fr;
+  gap: 0.75rem;
+  margin: 0 0 1.5rem;
+}
+
+.summary dt {
+  color: var(--color-text-subtle);
+}
+
+.summary dd {
+  margin: 0;
+}
+
+.checkout {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1rem;
+  align-items: end;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.checkout > div {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.checkout select {
+  width: 100%;
+  padding: 0.75rem;
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.checkout select:disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.checkout small {
+  color: var(--color-text-muted);
+}
+
+.checkout p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.terminal {
+  padding: 1rem;
+  background: var(--color-surface-hover);
+  border-radius: var(--radius-md);
+}
+
+.terminal strong {
+  color: var(--color-accent);
+}
+
+.terminal p {
+  margin-bottom: 0;
+  color: var(--color-text-muted);
+}
+
+.terminal.expired strong {
+  color: var(--color-error);
+}
+
+.error {
+  color: var(--color-error);
+}
+
+.success {
+  color: var(--color-accent);
+}
+
+@media (max-width: 900px) {
+  .checkout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .orderCard {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .amount {
+    text-align: left;
+  }
+
+  .summary dl {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+  }
+
+  .summary dd {
+    margin-bottom: 0.65rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orderCard {
+    transition: none;
+  }
+}
+
+@media (hover: hover) and (prefers-reduced-motion: reduce) {
+  .orderCard:hover {
+    transform: none;
+  }
+}

@@ -61,7 +61,7 @@ async function inspectImage(path: string): Promise<ImageInspection> {
     await file.close();
   }
 
-  throw new HttpError(415, "Image must be JPEG, PNG, or WebP");
+  throw new HttpError(415, "Image must be JPEG, PNG, or WebP", "unsupported_image");
 }
 
 async function fingerprintCreateRequest(data: unknown, path: string): Promise<string> {

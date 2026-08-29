@@ -8,9 +8,21 @@ const router = Router();
 
 router.get("/tickets/mine", requireAuth, (request, response) => {
   const parsed = paginationSchema.safeParse(request.query);
-  if (!parsed.success) throw new HttpError(400, "Invalid pagination");
+  if (!parsed.success) {
+    throw new HttpError(
+      400,
+      "Invalid pagination",
+      "invalid_pagination",
+    );
+  }
 
-  response.json(listOwnedTickets(response.locals.user.id, parsed.data.page, parsed.data.pageSize));
+  response.json(
+    listOwnedTickets(
+      response.locals.user.id,
+      parsed.data.page,
+      parsed.data.pageSize,
+    ),
+  );
 });
 
 export { router as listMyTickets };

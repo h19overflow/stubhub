@@ -1,13 +1,40 @@
 import { z } from "zod";
 
-const parseQueryNumber = (value: unknown): unknown =>
-  typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+function parseQueryNumber(value: unknown): unknown {
+  if (typeof value === "string" && value.trim() !== "") {
+    return Number(value);
+  }
+  return value;
+}
 
 const isoTimestampSchema = z.iso
   .datetime({ offset: true })
   .transform((value) => new Date(value).toISOString());
 
 const ticketIdSchema = z.uuid();
+const orderIdSchema = z.uuid();
+const expiresAtSchema = z.iso.datetime({ offset: true });
+
+const reservationCommandSchema = z
+  .object({
+    orderId: orderIdSchema,
+    expiresAt: expiresAtSchema,
+  })
+  .strict();
+
+const orderEventSchema = z
+  .object({
+    messageId: z.uuid(),
+    eventType: z.enum(["order.completed", "order.expired"]),
+    eventVersion: z.literal(1),
+    aggregateType: z.literal("order"),
+    aggregateId: orderIdSchema,
+    aggregateVersion: z.number().int().positive(),
+    occurredAt: z.iso.datetime({ offset: true }),
+    payload: z.object({
+      ticketId: z.uuid(),
+    }),
+  });
 
 const idempotencyKeySchema = z
   .string()
@@ -35,7 +62,10 @@ const createTicketSchema = z
   })
   .strict()
   .superRefine((ticket, context) => {
-    if (ticket.eventEndsAt && Date.parse(ticket.eventEndsAt) <= Date.parse(ticket.eventStartsAt)) {
+    if (
+      ticket.eventEndsAt &&
+      Date.parse(ticket.eventEndsAt) <= Date.parse(ticket.eventStartsAt)
+    ) {
       context.addIssue({
         code: "custom",
         path: ["eventEndsAt"],
@@ -52,8 +82,15 @@ const updateTicketPriceSchema = z
 
 const paginationSchema = z
   .object({
-    page: z.preprocess(parseQueryNumber, z.number().int().min(1)).default(1),
-    pageSize: z.preprocess(parseQueryNumber, z.number().int().min(1).max(100)).default(20),
+    page: z
+      .preprocess(parseQueryNumber, z.number().int().min(1))
+      .default(1),
+    pageSize: z
+      .preprocess(
+        parseQueryNumber,
+        z.number().int().min(1).max(100),
+      )
+      .default(20),
   })
   .strict();
 
@@ -101,9 +138,13 @@ const listTicketsQuerySchema = paginationSchema
 
 export {
   createTicketSchema,
+  expiresAtSchema,
   idempotencyKeySchema,
-  updateTicketPriceSchema,
   listTicketsQuerySchema,
+  orderEventSchema,
+  orderIdSchema,
   paginationSchema,
+  reservationCommandSchema,
   ticketIdSchema,
+  updateTicketPriceSchema,
 };

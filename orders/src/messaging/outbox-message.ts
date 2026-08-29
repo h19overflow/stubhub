@@ -14,6 +14,7 @@ type OutboxMessage = {
   updatedAt: string;
   publishedAt: string | null;
   attemptCount: number;
+  nextAttemptAt: string;
   lastError: string | null;
 };
 
@@ -30,6 +31,7 @@ type OutboxMessageRow = {
   updated_at: number;
   published_at: number | null;
   attempt_count: number;
+  next_attempt_at: number;
   last_error: string | null;
 };
 
@@ -59,6 +61,7 @@ function toOutboxMessage(row: OutboxMessageRow): OutboxMessage {
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
     publishedAt: row.published_at === null ? null : new Date(row.published_at).toISOString(),
+    nextAttemptAt: new Date(row.next_attempt_at).toISOString(),
     attemptCount: row.attempt_count,
     lastError: row.last_error,
   };

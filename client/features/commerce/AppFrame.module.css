@@ -1,0 +1,12 @@
+.main {
+  width: min(100% - 2rem, 78rem);
+  margin: 0 auto;
+  padding: 2rem 0 4rem;
+}
+
+@media (max-width: 640px) {
+  .main {
+    width: min(100% - 1.25rem, 78rem);
+    padding-top: 1.25rem;
+  }
+}

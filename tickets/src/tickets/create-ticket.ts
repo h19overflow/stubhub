@@ -57,22 +57,34 @@ function toCreateTicketInput(
     ownerId: command.ownerId,
     ...command.fields,
     eventStartsAt: Date.parse(command.fields.eventStartsAt),
-    eventEndsAt: command.fields.eventEndsAt ? Date.parse(command.fields.eventEndsAt) : null,
+    eventEndsAt: command.fields.eventEndsAt
+      ? Date.parse(command.fields.eventEndsAt)
+      : null,
     imageFilename: image.filename,
     idempotencyKey: command.idempotencyKey,
     requestFingerprint: image.requestFingerprint,
   };
 }
 
-async function createTicket(command: CreateTicketCommand): Promise<CreateTicketResult> {
+async function createTicket(
+  command: CreateTicketCommand,
+): Promise<CreateTicketResult> {
   let imagePath = command.imagePath;
   try {
     const ticketId = randomUUID();
-    const image = await prepareTicketImage(command.fields, imagePath, ticketId);
+    const image = await prepareTicketImage(
+      command.fields,
+      imagePath,
+      ticketId,
+    );
     imagePath = image.path;
 
-    const result = createTicketRecord(toCreateTicketInput(command, ticketId, image));
-    if (result.outcome !== "created") await removeImage(imagePath);
+    const result = createTicketRecord(
+      toCreateTicketInput(command, ticketId, image),
+    );
+    if (result.outcome !== "created") {
+      await removeImage(imagePath);
+    }
     return result;
   } catch (error) {
     await removeImage(imagePath);

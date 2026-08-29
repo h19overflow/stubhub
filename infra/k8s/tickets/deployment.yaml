@@ -29,6 +29,13 @@ spec:
                 secretKeyRef:
                   name: stubhub-jwt
                   key: JWT_SECRET
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: stubhub-internal-service
+                  key: INTERNAL_SERVICE_TOKEN
+            - name: REDIS_URL
+              value: redis://redis:6379
             - name: TICKETS_DB_PATH
               value: /data/tickets.sqlite
             - name: TICKETS_UPLOAD_DIR
