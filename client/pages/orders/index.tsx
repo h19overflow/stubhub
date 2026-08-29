@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { MyOrders } from "../../features/orders/OrdersViews";
+import { MyOrders } from "../../features/orders/MyOrders";
 
 export default function OrdersPage() {
   return (

@@ -1,6 +1,6 @@
 import Head from "next/head";
 import { useRouter } from "next/router";
-import { OrderDetail } from "../../features/orders/OrdersViews";
+import { OrderDetail } from "../../features/orders/OrderDetail";
 
 export default function OrderPage() {
   const value = useRouter().query.orderId;

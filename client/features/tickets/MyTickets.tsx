@@ -1,5 +1,5 @@
 import { useRouter } from "next/router";
-import { useMyTickets } from "../../hooks/tickets/useTickets";
+import { useMyTickets } from "../../hooks/tickets/useMyTickets";
 import type { TicketStatus } from "../../lib/api/commerce-types";
 import { AppFrame } from "../commerce/AppFrame";
 import { Feedback } from "./Feedback";

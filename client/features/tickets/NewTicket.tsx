@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { Button } from "../../components/primitives/Button";
 import { TextField } from "../../components/primitives/TextField";
-import { useCreateTicket } from "../../hooks/tickets/useTickets";
+import { useCreateTicket } from "../../hooks/tickets/useCreateTicket";
 import { AppFrame } from "../commerce/AppFrame";
 import styles from "./TicketsViews.module.css";
 

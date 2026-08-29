@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Button } from "../../components/primitives/Button";
 import { TextField } from "../../components/primitives/TextField";
 import { useTickets } from "../../hooks/tickets/useTickets";
-import type { TicketFilters } from "../../lib/api/tickets/client";
+import type { TicketFilters } from "../../lib/api/tickets/types";
 import { AppFrame } from "../commerce/AppFrame";
 import { Feedback } from "./Feedback";
 import { TicketCard } from "./TicketCard";

@@ -1,7 +1,7 @@
 import { useRouter } from "next/router";
 import { Button } from "../../components/primitives/Button";
-import { useStartOrder } from "../../hooks/orders/useOrders";
-import { useTicket } from "../../hooks/tickets/useTickets";
+import { useStartOrder } from "../../hooks/orders/useStartOrder";
+import { useTicket } from "../../hooks/tickets/useTicket";
 import { AppFrame, formatDate, formatMoney } from "../commerce/AppFrame";
 import { Feedback } from "./Feedback";
 import styles from "./TicketsViews.module.css";

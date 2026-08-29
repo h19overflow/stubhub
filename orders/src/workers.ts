@@ -1,5 +1,22 @@
+/**
+ * Background work for the Orders service.
+ *
+ * HTTP routes handle the immediate request and store durable state. This file
+ * repeatedly asks the Orders database what unfinished work is due and moves it
+ * forward without requiring the browser to stay connected.
+ *
+ * Each scan performs four jobs:
+ * 1. retry unfinished ticket reservations;
+ * 2. reconcile payment attempts with the local provider;
+ * 3. expire unpaid pending orders;
+ * 4. publish committed Order events to Redis for the Tickets service.
+ *
+ * The database is the source of truth. The timer only wakes the worker up; a
+ * restart is safe because the next scan reads the durable work again.
+ */
+
 import { createClient } from "redis";
-import { processPurchase } from "./http/routes/create-order.js";
+import { processPurchase } from "./orders/purchase-workflow.js";
 import {
   duePending,
   duePurchases,
@@ -21,6 +38,7 @@ import {
 } from "./messaging/outbox-repo.js";
 import type { OutboxMessage } from "./messaging/outbox-message.js";
 
+// Read worker timing from the environment once during service startup.
 function positiveIntegerSetting(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw === undefined) return fallback;
@@ -32,22 +50,27 @@ function positiveIntegerSetting(name: string, fallback: number): number {
   return value;
 }
 
+// `running` prevents a slow scan from overlapping the next timer tick.
 const intervalMs = positiveIntegerSetting("ORDERS_WORKER_INTERVAL_MS", 2_000);
 let timer: NodeJS.Timeout | null = null;
 let running = false;
 
+// Redis carries completed/expired Order facts to the Tickets consumer.
+// The connection is opened lazily only when an outbox message needs publishing.
 const redis = createClient({
   url: process.env.REDIS_URL ?? "redis://redis:6379",
   socket: { connectTimeout: 1_000, reconnectStrategy: false },
 });
 redis.on("error", (error) => console.error("Orders Redis error", error));
 
+// Continue reservation work that an HTTP request could not finish immediately.
 async function scanPurchases(): Promise<void> {
   for (const operation of duePurchases(Date.now())) {
     await processPurchase(operation);
   }
 }
 
+// Turn overdue pending Orders into expired Orders and durable outbox events.
 function scanExpiration(): void {
   const now = Date.now();
   for (const id of duePending(now)) {
@@ -55,6 +78,8 @@ function scanExpiration(): void {
   }
 }
 
+// Reconcile processing payments. The persisted attempt ID makes provider
+// lookup/submission safe to repeat after a crash or temporary failure.
 function providerResult(attempt: PaymentAttemptRow, now: number) {
   try {
     return lookup(attempt.id, now);
@@ -100,6 +125,8 @@ function scanPayments(): void {
   }
 }
 
+// Publish one durable outbox row to Redis. The database row is marked published
+// only after Redis accepts it, so a failed publish remains available for retry.
 async function publishMessage(message: OutboxMessage): Promise<void> {
   const envelope = {
     messageId: message.id,
@@ -125,6 +152,8 @@ async function publishMessage(message: OutboxMessage): Promise<void> {
   }
 }
 
+// Publish a bounded batch of due outbox rows. Tickets consumes these events to
+// mark its matching reservation sold or release it after expiration.
 async function scanOutbox(): Promise<void> {
   const now = Date.now();
   const messages = listUnpublishedOutboxMessages(now, 100);
@@ -148,6 +177,8 @@ async function scanOutbox(): Promise<void> {
   }
 }
 
+// Run every background responsibility once. One failure is logged, and the
+// interval can try the remaining durable work again on the next scan.
 async function scan(): Promise<void> {
   if (running) return;
   running = true;
@@ -163,11 +194,14 @@ async function scan(): Promise<void> {
   }
 }
 
+// Orders calls this before opening its HTTP listener, so recovery begins as the
+// service starts rather than waiting for the first interval.
 async function startWorkers(): Promise<void> {
   await scan();
   timer = setInterval(() => void scan(), intervalMs);
 }
 
+// Shutdown stops new scans, waits for the active scan, then closes Redis.
 async function stopWorkers(): Promise<void> {
   if (timer) clearInterval(timer);
   timer = null;
