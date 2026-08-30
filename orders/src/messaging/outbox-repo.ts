@@ -27,7 +27,8 @@ const outboxColumns = `
  * Stores a business fact for later publication.
  *
  * Call this in the same database transaction as the Order change that produced
- * the fact. The publisher can then retry without losing a committed event.
+ * the fact. The inserted row starts unpublished and immediately due, so the
+ * publisher can retry it without losing a committed event.
  */
 function enqueueOutboxMessage(input: EnqueueOutboxMessageInput): OutboxMessage {
   const now = Date.now();
@@ -70,7 +71,12 @@ function enqueueOutboxMessage(input: EnqueueOutboxMessageInput): OutboxMessage {
   };
 }
 
-/** Returns due unpublished rows for one publisher batch. */
+/**
+ * Returns a stable, ordered batch of unpublished rows whose next attempt is due.
+ *
+ * Only rows still lacking published_at are selected, so a publisher restart can
+ * reread durable work; the positive limit bounds one scan.
+ */
 function listUnpublishedOutboxMessages(now: number, limit: number): OutboxMessage[] {
   if (!Number.isSafeInteger(limit) || limit <= 0) {
     throw new RangeError("Outbox batch limit must be a positive safe integer");
@@ -87,8 +93,11 @@ function listUnpublishedOutboxMessages(now: number, limit: number): OutboxMessag
 }
 
 /**
- * Records a successful publish attempt.
- * Returns false when the row is missing or another attempt already marked it.
+ * Marks an outbox row published after its Redis publication succeeds.
+ *
+ * The unpublished condition is compare-and-set protection against a duplicate
+ * publisher. Returns true only when this call changed one row, and false when
+ * the row is missing or already published.
  */
 function markOutboxMessagePublished(id: string): boolean {
   const now = Date.now();
@@ -100,7 +109,13 @@ function markOutboxMessagePublished(id: string): boolean {
   return Number(result.changes) === 1;
 }
 
-// Retry only if the unpublished row still matches the attempt we read.
+/**
+ * Records a failed publication and schedules the same row for a later attempt.
+ *
+ * The update is compare-and-set guarded by the row's observed attempt count and
+ * unpublished state. Returns true only when retry metadata was recorded; false
+ * means another publisher changed or published the row first.
+ */
 function recordOutboxMessageFailure(
   message: OutboxMessage,
   error: string,

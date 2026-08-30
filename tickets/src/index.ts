@@ -12,6 +12,11 @@ const server = app.listen(port, "0.0.0.0", () => {
 });
 let stopping = false;
 
+/**
+ * Idempotently shuts down the Tickets service in dependency order: first stop
+ * accepting HTTP work and wait for the server to close, then stop the Redis
+ * order-event consumer. Repeated calls do not repeat either cleanup step.
+ */
 async function shutdown(): Promise<void> {
   if (stopping) {
     return;

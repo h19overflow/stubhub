@@ -428,6 +428,12 @@ function releaseReservation(
   }
 }
 
+/**
+ * Classifies how an order event should converge the current Ticket row without
+ * changing it. Missing, already-available, already-sold, and another order's
+ * reservation become non-mutating outcomes; only a matching reserved lock
+ * requests the sold or released transition.
+ */
 function convergenceOutcome(
   row: TicketRow | null,
   event: OrderEvent,
@@ -447,6 +453,11 @@ function convergenceOutcome(
   return event.eventType === "order.completed" ? "sold" : "released";
 }
 
+/**
+ * Applies the guarded completion transition inside consumeOrderEvent's
+ * transaction. Only a reserved ticket locked by this event's order becomes
+ * sold; an unexpected row count throws so the receipt cannot commit falsely.
+ */
 function applySoldConvergence(event: OrderEvent): void {
   const changed = database
     .prepare(
@@ -464,6 +475,11 @@ function applySoldConvergence(event: OrderEvent): void {
   }
 }
 
+/**
+ * Applies the guarded expiration transition inside consumeOrderEvent's
+ * transaction. Only a reserved ticket locked by this event's order becomes
+ * available and loses its reservation; an unexpected row count throws.
+ */
 function applyReleaseConvergence(event: OrderEvent): void {
   const changed = database
     .prepare(
@@ -482,6 +498,13 @@ function applyReleaseConvergence(event: OrderEvent): void {
   }
 }
 
+/**
+ * Atomically consumes an order event by checking the inbox, applying the
+ * guarded Ticket transition, and recording the inbox receipt in one
+ * transaction. A duplicate commits no state change and returns
+ * `{ duplicate: true }`; first processing returns its outcome. Errors roll
+ * back both changes so the Redis caller can retry without acknowledging.
+ */
 function consumeOrderEvent(
   event: OrderEvent,
 ): { duplicate: boolean; outcome?: ConvergenceOutcome } {

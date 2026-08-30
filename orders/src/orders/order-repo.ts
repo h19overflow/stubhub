@@ -212,6 +212,12 @@ function rejectPurchase(
   return Number(result.changes) === 1;
 }
 
+/**
+ * Advances a reserving or releasing purchase operation after a retryable error.
+ * The state and retry-count predicates form a compare-and-set, so a stale worker
+ * cannot overwrite newer durable bookkeeping. Returns false when that snapshot no
+ * longer matches, and true only when the next retry and error are persisted.
+ */
 function schedulePurchase(
   expected: PurchaseRow,
   state: "reserving" | "releasing",
@@ -237,6 +243,10 @@ function schedulePurchase(
   return Number(result.changes) === 1;
 }
 
+/**
+ * Selects at most 100 reserving or releasing operations whose persisted retry
+ * deadline is due, in deadline/order order, for bounded worker processing.
+ */
 function duePurchases(now: number): PurchaseRow[] {
   return database
     .prepare(
@@ -249,6 +259,10 @@ function duePurchases(now: number): PurchaseRow[] {
     .all(now) as PurchaseRow[];
 }
 
+/**
+ * Selects at most 100 pending orders eligible for expiration because their
+ * expiration time is due, ordered by expiration time and ID.
+ */
 function duePending(now: number): string[] {
   const rows = database
     .prepare(
@@ -262,26 +276,38 @@ function duePending(now: number): string[] {
   return rows.map(({ id }) => id);
 }
 
+/**
+ * Atomically applies a guarded terminal order transition and inserts its matching
+ * outbox event. Completed events require payment_processing; expired events require
+ * a still-pending, already-expired order. Returns null when the guarded state no
+ * longer matches, otherwise the transitioned durable order.
+ */
 function enqueueTerminal(
   orderId: string,
   eventType: "order.completed" | "order.expired",
   now: number,
 ): Order | null {
   return withTransaction(() => {
-    const from = eventType === "order.completed" ? "payment_processing" : "pending";
-    const status = eventType === "order.completed" ? "complete" : "expired";
-    const parameters =
-      status === "expired"
-        ? [status, now, orderId, from, now]
-        : [status, now, orderId, from];
-    const row = database
-      .prepare(
-        `UPDATE orders
-         SET status=?,version=version+1,updated_at=?
-         WHERE id=? AND status=? ${status === "expired" ? "AND expires_at<=?" : ""}
-         RETURNING ${columns}`,
-      )
-      .get(...parameters) as OrderRow | undefined;
+    let row: OrderRow | undefined;
+    if (eventType === "order.completed") {
+      row = database
+        .prepare(
+          `UPDATE orders
+           SET status='complete',version=version+1,updated_at=?
+           WHERE id=? AND status='payment_processing'
+           RETURNING ${columns}`,
+        )
+        .get(now, orderId) as OrderRow | undefined;
+    } else {
+      row = database
+        .prepare(
+          `UPDATE orders
+           SET status='expired',version=version+1,updated_at=?
+           WHERE id=? AND status='pending' AND expires_at<=?
+           RETURNING ${columns}`,
+        )
+        .get(now, orderId, now) as OrderRow | undefined;
+    }
     if (!row) return null;
 
     database

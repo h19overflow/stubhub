@@ -15,6 +15,11 @@ if (retryCapMs < retryBaseMs) {
   throw new Error("ORDERS_RETRY_CAP_MS must be at least ORDERS_RETRY_BASE_MS");
 }
 
+/**
+ * Computes capped exponential backoff from a persisted retry count and adds
+ * uniform jitter between half and all of the capped delay. The randomization
+ * desynchronizes workers retrying the same failure; invalid counts throw.
+ */
 function retryDelayMs(persistedRetryCount: number): number {
   if (!Number.isSafeInteger(persistedRetryCount) || persistedRetryCount < 0) {
     throw new RangeError("Persisted retry count must be a non-negative safe integer");

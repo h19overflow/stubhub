@@ -21,6 +21,13 @@ const server = app.listen(port, "0.0.0.0", () => {
 
 let stopping = false;
 
+/**
+ * Shuts down the Orders service in HTTP-first order, then drains workers and
+ * closes Redis.
+ *
+ * The guard makes repeated signal-triggered calls no-ops, so only the first
+ * shutdown sequence closes the server and waits for background work to finish.
+ */
 async function stop(): Promise<void> {
   if (stopping) return;
   stopping = true;

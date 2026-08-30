@@ -143,6 +143,13 @@ function updateProviderReference(
   return Number(result.changes) === 1;
 }
 
+/**
+ * Resolves a processing payment attempt and its guarded order transition in one
+ * transaction, inserting an outbox event when the order becomes complete or expired.
+ * A decline returns the order to pending while unexpired, or expires it otherwise.
+ * Returns null when the attempt is absent; an already terminal attempt is returned
+ * unchanged, and a lost processing-order transition throws so the transaction rolls back.
+ */
 function resolveAttempt(
   id: string,
   outcome: "succeeded" | "declined",
@@ -227,6 +234,10 @@ function resolveAttempt(
   });
 }
 
+/**
+ * Selects at most 100 processing payment attempts whose reconciliation deadline is
+ * due, ordered by deadline and ID for bounded reconciliation work.
+ */
 function dueAttempts(now: number): PaymentAttemptRow[] {
   return database
     .prepare(
@@ -239,6 +250,11 @@ function dueAttempts(now: number): PaymentAttemptRow[] {
     .all(now) as PaymentAttemptRow[];
 }
 
+/**
+ * Schedules payment reconciliation with a compare-and-set on status and persisted
+ * attempt count, incrementing the count and storing the next deadline/error. Returns
+ * false when the expected snapshot is stale, and true only when one row is updated.
+ */
 function scheduleAttempt(
   expected: PaymentAttemptRow,
   error: string,

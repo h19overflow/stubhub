@@ -9,6 +9,11 @@ const deadLetterStream = "orders.events.dead-letter";
 const group = "tickets-order-convergence";
 const consumer = `${hostname()}-${process.pid}-${randomUUID()}`;
 
+/**
+ * Reads a positive integer setting, using the fallback only when the
+ * environment variable is absent. Invalid values fail startup so timing and
+ * batch controls cannot silently use unsafe configuration.
+ */
 function positiveIntegerSetting(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw === undefined) {
@@ -29,10 +34,18 @@ const batchSize = positiveIntegerSetting("TICKETS_EVENTS_BATCH_SIZE", 50);
 
 type StreamEntry = { id: string; message: Record<string, string> };
 
+/**
+ * Delays a failed-consumption retry so transient Redis or processing errors do
+ * not spin the worker in a tight loop.
+ */
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+/**
+ * Parses and schema-validates the event field. Malformed or invalid entries
+ * return null so the caller can dead-letter them before acknowledging them.
+ */
 function parseEvent(entry: StreamEntry) {
   try {
     const parsed = orderEventSchema.safeParse(
@@ -44,6 +57,13 @@ function parseEvent(entry: StreamEntry) {
   }
 }
 
+/**
+ * Connects the consumer to Redis, creates the order-event consumer group (or
+ * reuses it when Redis reports BUSYGROUP), and starts pending recovery plus
+ * the new-entry loop. The returned shutdown function marks the loop stopping,
+ * waits for current work, and closes Redis; entries are acknowledged only
+ * after durable processing.
+ */
 async function startOrderEventsConsumer(): Promise<() => Promise<void>> {
   const url = process.env.REDIS_URL;
   if (!url) {
@@ -68,6 +88,11 @@ async function startOrderEventsConsumer(): Promise<() => Promise<void>> {
 
   let stopping = false;
 
+  /**
+   * Handles one Redis entry. Poison entries are written to the dead-letter
+   * stream before ACK; valid entries finish their inbox/Ticket transaction
+   * before ACK. A failure before ACK leaves the entry pending.
+   */
   async function processEntry(entry: StreamEntry): Promise<void> {
     const event = parseEvent(entry);
     if (!event) {
@@ -81,6 +106,11 @@ async function startOrderEventsConsumer(): Promise<() => Promise<void>> {
     await client.xAck(stream, group, entry.id);
   }
 
+  /**
+   * Processes a batch sequentially, awaiting each entry's durable outcome
+   * before starting the next. A failure stops the batch, leaving later or
+   * unacknowledged entries for a subsequent recovery scan.
+   */
   async function processEntries(
     entries: Array<StreamEntry | null>,
   ): Promise<void> {
@@ -91,6 +121,11 @@ async function startOrderEventsConsumer(): Promise<() => Promise<void>> {
     }
   }
 
+  /**
+   * Reclaims stale entries from the consumer group's Pending Entries List with
+   * XAUTOCLAIM, processing them in COUNT-sized batches. Inbox deduplication
+   * makes this safe after a crash between the database commit and Redis ACK.
+   */
   async function recoverPending(): Promise<void> {
     let cursor = "0-0";
     do {
@@ -107,6 +142,11 @@ async function startOrderEventsConsumer(): Promise<() => Promise<void>> {
     } while (!stopping && cursor !== "0-0");
   }
 
+  /**
+   * Reads entries never delivered to this consumer group by using the `>`
+   * cursor. Pending entries are handled separately by recoverPending, and the
+   * bounded block keeps shutdown responsive.
+   */
   async function readNewEntries(): Promise<void> {
     const batches = await client.xReadGroup(
       group,
@@ -121,6 +161,11 @@ async function startOrderEventsConsumer(): Promise<() => Promise<void>> {
 
   let nextClaimAt = 0;
 
+  /**
+   * Runs one consumption iteration, recovering stale pending work when due
+   * before blocking for new entries. The claim schedule advances only after a
+   * successful recovery scan; retry backoff is handled by the outer loop.
+   */
   async function consumeAvailableEntries(): Promise<void> {
     if (Date.now() >= nextClaimAt) {
       await recoverPending();
@@ -129,6 +174,11 @@ async function startOrderEventsConsumer(): Promise<() => Promise<void>> {
     await readNewEntries();
   }
 
+  /**
+   * Handles a failed consumption iteration by logging it and backing off before
+   * retrying. During shutdown it skips the delay so the returned shutdown
+   * function can finish promptly.
+   */
   async function handleConsumptionFailure(error: unknown): Promise<void> {
     if (stopping) {
       return;
