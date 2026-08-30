@@ -9,6 +9,7 @@ import { useSignOut } from "../../hooks/auth/useSignOut";
 
 type SignedInLandingProps = {
   email: string;
+  role: "user" | "admin";
 };
 
 const navigation = [
@@ -16,6 +17,8 @@ const navigation = [
   { href: "/tickets/new", label: "Selling" },
   { href: "/orders", label: "My orders" },
 ] as const;
+
+const adminNavigationItem = { href: "/admin/reported-users", label: "Moderation" } as const;
 
 const featuredEvents = [
   {
@@ -41,15 +44,16 @@ const featuredEvents = [
   },
 ] as const;
 
-export function SignedInLanding({ email }: SignedInLandingProps) {
+export function SignedInLanding({ email, role }: SignedInLandingProps) {
   const landing = useRef<HTMLElement>(null);
 
   const onClickSignOut = useSignOut();
-  
+  const items = role === "admin" ? [...navigation, adminNavigationItem] : navigation;
+
   useLandingMotion(landing);
   return (
     <>
-      <Navbar accountLabel={email} items={navigation} onSignOut={onClickSignOut} />
+      <Navbar accountLabel={email} items={items} onSignOut={onClickSignOut} />
       <main className={styles.main} ref={landing}>
         <section aria-labelledby="landing-title" className={styles.hero}>
           <div className={styles.heroMedia} data-hero-image>

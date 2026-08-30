@@ -5,9 +5,10 @@ import { refreshAuthenticationOnServer } from "../lib/api/auth/refresh-server";
 
 type HomePageProps = {
   email: string;
+  role: "user" | "admin";
 };
 // In the Pages Router, `pages/index.tsx` automatically owns the `/` URL.
-export default function HomePage({ email }: HomePageProps) {
+export default function HomePage({ email, role }: HomePageProps) {
   return (
     <>
       <Head>
@@ -15,7 +16,7 @@ export default function HomePage({ email }: HomePageProps) {
         <meta name="description" content="Demo home for the StubHub marketplace client" />
       </Head>
       {/* The route stays thin: the feature component owns the actual landing-page UI. */}
-      <SignedInLanding email={email} />
+      <SignedInLanding email={email} role={role} />
     </>
   );
 }
@@ -28,5 +29,10 @@ export const getServerSideProps: GetServerSideProps<HomePageProps> = async ({ re
     return { redirect: { destination: "/auth", permanent: false } };
   }
 
-  return { props: { email: authentication.user.email } };
+  return {
+    props: {
+      email: authentication.user.email,
+      role: authentication.user.role,
+    },
+  };
 };

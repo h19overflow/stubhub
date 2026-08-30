@@ -164,6 +164,10 @@
   border-top: 1px solid var(--color-border);
 }
 
+.reportAction {
+  margin-top: var(--space-4);
+}
+
 .checkout > div {
   display: grid;
   gap: 0.45rem;

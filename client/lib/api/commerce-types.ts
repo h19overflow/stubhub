@@ -33,6 +33,7 @@ export type TicketPage = {
 
 export type OrderTicketSnapshot = {
   eventName: string;
+  description: string | null;
   eventStartsAt: string;
   eventEndsAt: string | null;
   place: string;
@@ -42,6 +43,7 @@ export type OrderTicketSnapshot = {
 export type Order = {
   id: string;
   ticketId: string;
+  sellerUserId: string | null;
   amountCents: number;
   currency: Currency;
   status: OrderStatus;
@@ -146,6 +148,7 @@ export function parseOrder(value: unknown): Order {
   return {
     id: string(body.id),
     ticketId: string(body.ticketId),
+    sellerUserId: nullableString(body.sellerUserId),
     amountCents: number(body.amountCents),
     currency: currency(body.currency),
     status,
@@ -153,6 +156,7 @@ export function parseOrder(value: unknown): Order {
     version: number(body.version),
     ticket: {
       eventName: string(ticket.eventName),
+      description: nullableString(ticket.description),
       eventStartsAt: string(ticket.eventStartsAt),
       eventEndsAt: nullableString(ticket.eventEndsAt),
       place: string(ticket.place),

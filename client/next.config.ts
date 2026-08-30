@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const identityServiceUrl = process.env.IDENTITY_SERVICE_URL ?? "http://localhost:3001";
 const ticketsServiceUrl = process.env.TICKETS_SERVICE_URL ?? "http://localhost:3002";
 const ordersServiceUrl = process.env.ORDERS_SERVICE_URL ?? "http://localhost:3003";
+const moderationServiceUrl =
+  process.env.MODERATION_SERVICE_URL ?? "http://localhost:3004";
 const nextConfig: NextConfig = {
   async rewrites() {
     return [
@@ -21,6 +23,10 @@ const nextConfig: NextConfig = {
       {
         source: "/api/orders/:path*",
         destination: `${ordersServiceUrl}/:path*`,
+      },
+      {
+        source: "/api/moderation/:path*",
+        destination: `${moderationServiceUrl}/:path*`,
       },
       {
         source: "/ticket-images/:path*",
