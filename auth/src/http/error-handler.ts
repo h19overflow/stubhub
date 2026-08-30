@@ -18,7 +18,7 @@ class HttpError extends Error {
 
 // Express recognizes error-handling middleware by its four parameters. Express 5
 // forwards errors thrown by synchronous or async route handlers to this function.
-const errorHandler: ErrorRequestHandler = (error, _request, response, next) => {
+const errorHandler: ErrorRequestHandler = (error, request, response, next) => {
   // Once a response has started, sending another response would fail. Delegating
   // lets Express (or another error handler) finish or close the response safely.
   if (response.headersSent) {
@@ -28,7 +28,11 @@ const errorHandler: ErrorRequestHandler = (error, _request, response, next) => {
 
   const parserError = error as { status?: unknown; type?: unknown };
   if (parserError.status === 400 && parserError.type === "entity.parse.failed") {
-    response.status(400).json({ error: "Malformed JSON body" });
+    if (request.path === "/admin/users/elevate") {
+      response.status(400).json({ error: "A valid email is required", code: "invalid_email" });
+    } else {
+      response.status(400).json({ error: "Malformed JSON body" });
+    }
     return;
   }
 
@@ -38,9 +42,14 @@ const errorHandler: ErrorRequestHandler = (error, _request, response, next) => {
     return;
   }
 
-  // Unexpected error: log the real error, but do not leak its internal details.
+  // Elevation clients need a stable machine-readable failure code; other routes
+  // retain the existing generic envelope.
   console.error(error);
-  response.status(500).json({ error: "Internal server error" });
+  if (request.path === "/admin/users/elevate") {
+    response.status(500).json({ error: "Internal server error", code: "internal_error" });
+  } else {
+    response.status(500).json({ error: "Internal server error" });
+  }
 };
 
 export { errorHandler, HttpError };

@@ -8,6 +8,7 @@
     "build:common": "npm --prefix ../common run build",
     "build": "npm run build:common && tsc -p tsconfig.json",
     "migrate": "npm run build && node dist/database.js",
+    "seed:admin": "npm run build && node --env-file-if-exists=.env dist/seed-admin.js",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "test:build": "npm run build:common && node -e \"require('node:fs').rmSync('dist-test', { recursive: true, force: true })\" && tsc -p tsconfig.test.json && node -e \"require('node:fs').cpSync('migrations', 'dist-test/migrations', { recursive: true })\"",
     "test": "npm run test:build && node --env-file=tests/test.env --test \"dist-test/tests/unit/**/*.test.js\" \"dist-test/tests/integration/**/*.test.js\"",

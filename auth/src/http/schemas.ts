@@ -13,6 +13,9 @@ const credentialsSchema = z.object({
 });
 
 export const emailSchema = z.object({ email });
+export const adminElevationSchema = z.object({ email }).strict();
+
+export const userIdSchema = z.uuid();
 
 export const emailCodeSchema = z.object({
   email,

@@ -56,6 +56,36 @@ function findUserByEmail(email: string): PublicUser | null {
 }
 
 /**
+ * Looks up one user by its stable identifier.
+ *
+ * Flow: internal Identity lookup validates the path UUID, then calls this
+ * single-row query. Returns null for a missing identifier and never lists users.
+ */
+function findUserById(userId: string): PublicUser | null {
+  const row = database.prepare(
+    "SELECT id, email, email_verified_at, role FROM users WHERE id = ?",
+  ).get(userId) as
+    | Pick<UserRow, "id" | "email" | "email_verified_at" | "role">
+    | undefined;
+  return row ? publicUser(row) : null;
+}
+
+/**
+ * Elevates one existing account to the fixed administrator role.
+ *
+ * Flow: exact normalized email lookup → guarded role update → return the
+ * public user. Missing accounts return null; admin replays update the same
+ * row and return the same representation.
+ */
+function elevateUserByEmail(email: string): PublicUser | null {
+  const user = findUserByEmail(email);
+  if (!user) return null;
+
+  database.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(user.id);
+  return { ...user, role: "admin" };
+}
+
+/**
  * Creates a new Identity user with scrypt-hashed password.
  *
  * Flow: signup route -> validates input -> calls this. Re-checks email via
@@ -142,4 +172,4 @@ async function authenticateUser(credentials: Credentials): Promise<Authenticatio
   return { status: "authenticated", user: publicUser(row) };
 }
 
-export { authenticateUser, createUser, findUserByEmail };
+export { authenticateUser, createUser, elevateUserByEmail, findUserByEmail, findUserById };
