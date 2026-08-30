@@ -56,6 +56,19 @@ build:
             dest: /app/common/src
           - src: "orders/migrations/**/*.sql"
             dest: /app/orders/migrations
+    - image: stubhub-moderation
+      context: .
+      docker:
+        dockerfile: Dockerfile
+        target: moderation-dev
+      sync:
+        manual:
+          - src: "moderation/src/**/*.ts"
+            dest: /app/moderation/src
+          - src: "common/src/**/*.ts"
+            dest: /app/common/src
+          - src: "moderation/migrations/**/*.sql"
+            dest: /app/moderation/migrations
 manifests:
   rawYaml:
     - infra/k8s/00-namespace.yaml
@@ -84,6 +97,11 @@ portForward:
     namespace: stubhub
     port: 3003
     localPort: 3003
+  - resourceType: service
+    resourceName: moderation
+    namespace: stubhub
+    port: 3004
+    localPort: 3004
   - resourceType: service
     resourceName: redis
     namespace: stubhub

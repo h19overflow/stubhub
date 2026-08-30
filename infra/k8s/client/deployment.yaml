@@ -27,6 +27,8 @@ spec:
               value: http://tickets:3002
             - name: ORDERS_SERVICE_URL
               value: http://orders:3003
+            - name: MODERATION_SERVICE_URL
+              value: http://moderation:3004
           ports:
             - name: http
               containerPort: 3000
