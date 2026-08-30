@@ -94,11 +94,11 @@ function commit<T>(result: T): T {
 }
 
 /**
- * Builds the Reservation snapshot from a locked TicketRow.
+ * Builds the internal Reservation snapshot from a locked TicketRow.
  *
  * Flow: reserveTicket and findReservation use this to return the durable
- * reservation seen by Orders (ticketId, orderId, expiresAt, price snapshot).
- * Throws if row has no active lock — indicates caller logic error.
+ * reservation seen by Orders, including seller ownership and purchase-time
+ * ticket description. Throws if row has no active lock — caller logic error.
  */
 function toReservation(row: TicketRow): Reservation {
   if (!row.locked_by_order_id || row.lock_expires_at === null) {
@@ -107,11 +107,13 @@ function toReservation(row: TicketRow): Reservation {
   return {
     ticketId: row.id,
     orderId: row.locked_by_order_id,
+    sellerUserId: row.owner_id,
     expiresAt: new Date(row.lock_expires_at).toISOString(),
     priceCents: row.price_cents,
     currency: row.currency,
     ticket: {
       eventName: row.event_name,
+      description: row.description,
       eventStartsAt: new Date(row.event_starts_at).toISOString(),
       eventEndsAt:
         row.event_ends_at === null

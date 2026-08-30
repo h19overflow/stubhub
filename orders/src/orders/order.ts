@@ -9,7 +9,9 @@ type OrderRow = {
   status: OrderStatus;
   expires_at: number;
   version: number;
+  seller_user_id: string | null;
   ticket_event_name: string;
+  ticket_description: string | null;
   ticket_event_starts_at: number;
   ticket_event_ends_at: number | null;
   ticket_place: string;
@@ -21,6 +23,7 @@ type OrderRow = {
 type Order = {
   id: string;
   ticketId: string;
+  sellerUserId: string | null;
   amountCents: number;
   currency: "USD";
   status: OrderStatus;
@@ -28,6 +31,7 @@ type Order = {
   version: number;
   ticket: {
     eventName: string;
+    description: string | null;
     eventStartsAt: string;
     eventEndsAt: string | null;
     place: string;
@@ -49,6 +53,7 @@ function toOrder(row: OrderRow): Order {
   return {
     id: row.id,
     ticketId: row.ticket_id,
+    sellerUserId: row.seller_user_id,
     amountCents: row.amount_cents,
     currency: row.currency,
     status: row.status,
@@ -56,6 +61,7 @@ function toOrder(row: OrderRow): Order {
     version: row.version,
     ticket: {
       eventName: row.ticket_event_name,
+      description: row.ticket_description,
       eventStartsAt: new Date(row.ticket_event_starts_at).toISOString(),
       eventEndsAt:
         row.ticket_event_ends_at === null

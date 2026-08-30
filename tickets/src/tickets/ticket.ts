@@ -88,11 +88,13 @@ type UpdateTicketPriceResult =
 type Reservation = {
   ticketId: string;
   orderId: string;
+  sellerUserId: string;
   expiresAt: string;
   priceCents: number;
   currency: "USD";
   ticket: {
     eventName: string;
+    description: string;
     eventStartsAt: string;
     eventEndsAt: string | null;
     place: string;

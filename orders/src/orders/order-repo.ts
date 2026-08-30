@@ -5,14 +5,30 @@ import { retryDelayMs } from "../retry-delay.js";
 import type { Order, OrderRow } from "./order.js";
 
 const columns = `id,user_id,ticket_id,amount_cents,currency,status,expires_at,version,
- ticket_event_name,ticket_event_starts_at,ticket_event_ends_at,ticket_place,ticket_info,created_at,updated_at`;
+ seller_user_id,ticket_event_name,ticket_description,ticket_event_starts_at,ticket_event_ends_at,ticket_place,ticket_info,created_at,updated_at`;
 
 type Snapshot = {
   eventName: string;
+  description: string;
   eventStartsAt: string;
   eventEndsAt: string | null;
   place: string;
   ticketInfo: string;
+};
+
+type ReportContext = {
+  orderId: string;
+  orderStatus: "complete";
+  reportedUserId: string;
+  ticket: {
+    ticketId: string;
+    eventName: string;
+    description: string;
+    eventStartsAt: string;
+    eventEndsAt: string | null;
+    place: string;
+    ticketInfo: string;
+  };
 };
 
 type PurchaseState = "reserving" | "completed" | "releasing" | "rejected";
@@ -49,6 +65,50 @@ function positiveIntegerSetting(name: string, fallback: number): number {
 }
 
 const purchaseTtlMs = positiveIntegerSetting("ORDER_EXPIRATION_MS", 15 * 60_000);
+
+/**
+ * Reads the bounded evidence needed to decide whether a buyer may report a
+ * seller from a completed Order. The buyer, status, seller, and non-null
+ * snapshot predicates are applied together so no invalid case is disclosed.
+ */
+function findReportContext(
+  orderId: string,
+  reporterUserId: string,
+  reportedUserId: string,
+): ReportContext | null {
+  const row = database
+    .prepare(
+      `SELECT ${columns}
+       FROM orders
+       WHERE id=?
+         AND user_id=?
+         AND status='complete'
+         AND seller_user_id=?
+         AND seller_user_id IS NOT NULL
+         AND ticket_description IS NOT NULL`,
+    )
+    .get(orderId, reporterUserId, reportedUserId) as OrderRow | undefined;
+  if (!row || row.seller_user_id === null || row.ticket_description === null) {
+    return null;
+  }
+  return {
+    orderId: row.id,
+    orderStatus: "complete",
+    reportedUserId: row.seller_user_id,
+    ticket: {
+      ticketId: row.ticket_id,
+      eventName: row.ticket_event_name,
+      description: row.ticket_description,
+      eventStartsAt: new Date(row.ticket_event_starts_at).toISOString(),
+      eventEndsAt:
+        row.ticket_event_ends_at === null
+          ? null
+          : new Date(row.ticket_event_ends_at).toISOString(),
+      place: row.ticket_place,
+      ticketInfo: row.ticket_info,
+    },
+  };
+}
 
 /**
  * Fetches a raw OrderRow by id (used by the Orders worker and purchase workflow).
@@ -150,6 +210,7 @@ function createPurchase(
 function completePurchase(
   expected: PurchaseRow,
   reservation: {
+    sellerUserId: string;
     expiresAt: string;
     priceCents: number;
     currency: "USD";
@@ -175,10 +236,10 @@ function completePurchase(
       .prepare(
         `INSERT INTO orders(
            id,user_id,ticket_id,amount_cents,currency,expires_at,
-           ticket_event_name,ticket_event_starts_at,ticket_event_ends_at,
-           ticket_place,ticket_info,created_at,updated_at
+           seller_user_id,ticket_event_name,ticket_description,ticket_event_starts_at,
+           ticket_event_ends_at,ticket_place,ticket_info,created_at,updated_at
          )
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(
         operation.order_id,
@@ -187,7 +248,9 @@ function completePurchase(
         reservation.priceCents,
         reservation.currency,
         operation.expires_at,
+        reservation.sellerUserId,
         reservation.ticket.eventName,
+        reservation.ticket.description,
         Date.parse(reservation.ticket.eventStartsAt),
         reservation.ticket.eventEndsAt
           ? Date.parse(reservation.ticket.eventEndsAt)
@@ -363,8 +426,15 @@ export {
   findOrderRow,
   findPurchase,
   findPurchaseByOrderId,
+  findReportContext,
   listOrdersForUser,
   rejectPurchase,
   schedulePurchase,
 };
-export type { CreatePurchaseResult, PurchaseRow, PurchaseState, Snapshot };
+export type {
+  CreatePurchaseResult,
+  PurchaseRow,
+  PurchaseState,
+  ReportContext,
+  Snapshot,
+};

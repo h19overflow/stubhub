@@ -3,6 +3,7 @@ import type { ErrorRequestHandler } from "express";
 import { createOrder } from "./http/routes/create-order.js";
 import { listOrders } from "./http/routes/list-orders.js";
 import { submitPayment } from "./http/routes/submit-payment.js";
+import { reportContext } from "./http/routes/report-context.js";
 import { AppError } from "./http/app-error.js";
 
 const app = express();
@@ -12,8 +13,7 @@ app.use(express.json({ limit: "16kb" }));
 app.get("/health", (_request, response) => {
   response.json({ service: "orders", status: "ok" });
 });
-
-app.use(createOrder, submitPayment, listOrders);
+app.use(createOrder, submitPayment, listOrders, reportContext);
 
 const errors: ErrorRequestHandler = (error, request, response, _next) => {
   if (error instanceof AppError) {
@@ -24,9 +24,12 @@ const errors: ErrorRequestHandler = (error, request, response, _next) => {
     return;
   }
   if (error instanceof SyntaxError) {
-    const code = request.path.endsWith("/payments")
-      ? "invalid_payment"
-      : "invalid_order";
+    let code = "invalid_order";
+    if (request.path.endsWith("/payments")) {
+      code = "invalid_payment";
+    } else if (request.path.startsWith("/internal/orders/report-context")) {
+      code = "invalid_report_context";
+    }
     response.status(400).json({
       error: "Invalid JSON request",
       code,

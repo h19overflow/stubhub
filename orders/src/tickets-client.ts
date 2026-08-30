@@ -4,17 +4,89 @@ import type { Snapshot } from "./orders/order-repo.js";
 type Reservation = {
   ticketId: string;
   orderId: string;
+  sellerUserId: string;
   expiresAt: string;
   priceCents: number;
   currency: "USD";
   ticket: Snapshot;
 };
+const uuid =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isoTimestamp =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
-type TicketsResponse = {
-  reservation?: Reservation;
-  error?: string;
-  code?: string;
-};
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isFiniteIso(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    isoTimestamp.test(value) &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+
+function parseReservation(
+  body: unknown,
+  ticketId: string,
+  orderId: string,
+  expectedExpiresAt?: string,
+): Reservation | null {
+  if (!isRecord(body) || !isRecord(body.reservation)) return null;
+  const value = body.reservation;
+  if (
+    typeof value.ticketId !== "string" ||
+    value.ticketId !== ticketId ||
+    typeof value.orderId !== "string" ||
+    value.orderId !== orderId ||
+    !isFiniteIso(value.expiresAt) ||
+    (expectedExpiresAt !== undefined && value.expiresAt !== expectedExpiresAt) ||
+    typeof value.sellerUserId !== "string" ||
+    !uuid.test(value.sellerUserId) ||
+    typeof value.priceCents !== "number" ||
+    !Number.isSafeInteger(value.priceCents) ||
+    value.priceCents <= 0 ||
+    value.currency !== "USD" ||
+    !isRecord(value.ticket)
+  ) {
+    return null;
+  }
+
+  const ticket = value.ticket;
+  const eventEndsAt = ticket.eventEndsAt;
+  if (
+    !isNonEmptyString(ticket.eventName) ||
+    !isNonEmptyString(ticket.description) ||
+    !isNonEmptyString(ticket.place) ||
+    !isNonEmptyString(ticket.ticketInfo) ||
+    !isFiniteIso(ticket.eventStartsAt) ||
+    (eventEndsAt !== null && !isFiniteIso(eventEndsAt))
+  ) {
+    return null;
+  }
+
+  return {
+    ticketId: value.ticketId,
+    orderId: value.orderId,
+    sellerUserId: value.sellerUserId,
+    expiresAt: value.expiresAt,
+    priceCents: value.priceCents,
+    currency: "USD",
+    ticket: {
+      eventName: ticket.eventName,
+      description: ticket.description,
+      eventStartsAt: ticket.eventStartsAt,
+      eventEndsAt,
+      place: ticket.place,
+      ticketInfo: ticket.ticketInfo,
+    },
+  };
+}
 
 const baseUrl = process.env.TICKETS_SERVICE_URL ?? "http://tickets:3002";
 const token = process.env.INTERNAL_SERVICE_TOKEN;
@@ -63,22 +135,26 @@ async function reserve(
   orderId: string,
   expiresAt: number,
 ): Promise<Reservation> {
+  const expectedExpiresAt = new Date(expiresAt).toISOString();
   const response = await call(
     `/internal/tickets/${encodeURIComponent(ticketId)}/reservation`,
     {
       method: "PUT",
       body: JSON.stringify({
         orderId,
-        expiresAt: new Date(expiresAt).toISOString(),
+        expiresAt: expectedExpiresAt,
       }),
     },
   );
-  const body = (await response.json().catch(() => null)) as TicketsResponse | null;
-  if (response.ok && body?.reservation) return body.reservation;
+  const body = await response.json().catch(() => null);
+  const reservation = response.ok
+    ? parseReservation(body, ticketId, orderId, expectedExpiresAt)
+    : null;
+  if (reservation) return reservation;
   if (response.status === 404) {
     throw new AppError(404, "ticket_not_found", "Ticket not found");
   }
-  if (response.status === 409 && body?.code === "reservation_conflict") {
+  if (response.status === 409 && isRecord(body) && body.code === "reservation_conflict") {
     throw new AppError(
       409,
       "reservation_conflict",
@@ -110,8 +186,11 @@ async function verify(
   const response = await call(
     `/internal/tickets/${encodeURIComponent(ticketId)}/reservation/${encodeURIComponent(orderId)}`,
   );
-  const body = (await response.json().catch(() => null)) as TicketsResponse | null;
-  if (response.ok && body?.reservation) return body.reservation;
+  const body = await response.json().catch(() => null);
+  const reservation = response.ok
+    ? parseReservation(body, ticketId, orderId)
+    : null;
+  if (reservation) return reservation;
   if (response.status === 404) {
     throw new AppError(
       409,

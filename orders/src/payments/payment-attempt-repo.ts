@@ -13,7 +13,7 @@ import type {
 const attemptColumns =
   "id,order_id,status,provider_scenario,provider_reference,failure_code,idempotency_key,request_fingerprint,reconcile_attempt_count,next_reconcile_at,last_reconcile_error,created_at,updated_at";
 const orderColumns =
-  "id,user_id,ticket_id,amount_cents,currency,status,expires_at,version,ticket_event_name,ticket_event_starts_at,ticket_event_ends_at,ticket_place,ticket_info,created_at,updated_at";
+  "id,user_id,ticket_id,amount_cents,currency,status,expires_at,version,seller_user_id,ticket_event_name,ticket_description,ticket_event_starts_at,ticket_event_ends_at,ticket_place,ticket_info,created_at,updated_at";
 
 type PaymentWorkResult = {
   attemptRow: PaymentAttemptRow;
