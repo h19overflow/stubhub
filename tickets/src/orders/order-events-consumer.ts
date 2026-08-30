@@ -2,7 +2,7 @@ import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createClient } from "redis";
 import { orderEventSchema } from "../tickets/schemas.js";
-import { consumeOrderEvent } from "../tickets/ticket-repo.js";
+import { applyOrderEventOnce } from "../tickets/ticket-repo.js";
 
 const stream = "orders.events";
 const deadLetterStream = "orders.events.dead-letter";
@@ -90,8 +90,8 @@ async function startOrderEventsConsumer(): Promise<() => Promise<void>> {
 
   /**
    * Handles one Redis entry. Poison entries are written to the dead-letter
-   * stream before ACK; valid entries finish their inbox/Ticket transaction
-   * before ACK. A failure before ACK leaves the entry pending.
+   * stream before ACK; valid entries finish their processed-event/Ticket
+   * transaction before ACK. A failure before ACK leaves the entry pending.
    */
   async function processEntry(entry: StreamEntry): Promise<void> {
     const event = parseEvent(entry);
@@ -102,7 +102,7 @@ async function startOrderEventsConsumer(): Promise<() => Promise<void>> {
       return;
     }
 
-    consumeOrderEvent(event);
+    applyOrderEventOnce(event);
     await client.xAck(stream, group, entry.id);
   }
 
@@ -123,8 +123,9 @@ async function startOrderEventsConsumer(): Promise<() => Promise<void>> {
 
   /**
    * Reclaims stale entries from the consumer group's Pending Entries List with
-   * XAUTOCLAIM, processing them in COUNT-sized batches. Inbox deduplication
-   * makes this safe after a crash between the database commit and Redis ACK.
+   * XAUTOCLAIM, processing them in COUNT-sized batches. Processed-event
+   * deduplication (inbox pattern) makes this safe after a crash between the
+   * database commit and Redis ACK.
    */
   async function recoverPending(): Promise<void> {
     let cursor = "0-0";

@@ -37,11 +37,30 @@ const accessTokenClaimsSchema = z.object({
   role: z.enum(["user", "admin"]),
 });
 
+/**
+ * Extracts the raw JWT from an `Authorization: Bearer <token>` header.
+ *
+ * Flow: called by `verifyAccessToken` on every authenticated request and by
+ * service-level auth checks. Returns null for missing/malformed headers so
+ * callers can return 401 without throwing. Enforces the 3-part shape
+ * (`Bearer token` exactly, no extra segments) to reject malformed tokens
+ * early before crypto verification.
+ */
 function readBearerToken(authorizationHeader: string | undefined): string | null {
   const [scheme, token, extra] = authorizationHeader?.split(" ") ?? [];
   return scheme?.toLowerCase() === "bearer" && token && !extra ? token : null;
 }
 
+/**
+ * Verifies the access token issued by the Identity service and returns the
+ * authenticated user.
+ *
+ * Flow: Identity → `createAccessToken` signs; downstream services (Tickets,
+ * Orders) call this to authenticate each request. Uses `jose.jwtVerify` with
+ * issuer/audience/algorithm checks, then validates claims via Zod. Returns
+ * null on any failure (missing, expired, wrong audience) so `requireAuth`
+ * can send 401. Never throws for invalid tokens — keeps HTTP layer simple.
+ */
 async function verifyAccessToken(
   authorizationHeader: string | undefined,
 ): Promise<AuthenticatedUser | null> {
@@ -68,6 +87,15 @@ async function verifyAccessToken(
   }
 }
 
+/**
+ * Express middleware that enforces authentication for protected routes.
+ *
+ * Flow: runs before route handler → calls `verifyAccessToken` → on success
+ * attaches `user` to `response.locals` for downstream handlers (e.g. ticket
+ * ownership checks, order creation); on failure sends 401 with
+ * `WWW-Authenticate: Bearer`. Shared via `@stubhub/common` so all services
+ * enforce the same JWT contract.
+ */
 const requireAuth: RequestHandler = async (request, response, next) => {
   const user = await verifyAccessToken(request.headers.authorization);
   if (!user) {

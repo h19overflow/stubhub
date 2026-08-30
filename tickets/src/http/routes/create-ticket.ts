@@ -16,6 +16,14 @@ import { HttpError } from "../error-handler.js";
 
 const router = Router();
 
+/**
+ * Validates the multipart create-ticket request (idempotency + fields + image).
+ *
+ * Flow: called by handleCreateTicket before domain. Checks Idempotency-Key
+ * via idempotencyKeySchema, fields via createTicketSchema, and that multer
+ * produced request.file.path. Throws HttpError 400 invalid_idempotency_key or
+ * invalid_ticket so errorHandler returns JSON code.
+ */
 function parseCreateTicketRequest(request: Request) {
   const idempotencyKey = idempotencyKeySchema.safeParse(
     request.get("Idempotency-Key"),
@@ -45,6 +53,13 @@ function parseCreateTicketRequest(request: Request) {
   };
 }
 
+/**
+ * Maps a CreateTicketResult to the HTTP status/code.
+ *
+ * Flow: after domain createTicket: created→201 {outcome, ticket}, replayed→200,
+ * conflict→409 idempotency_conflict. Keeps HTTP concerns out of repo (repo
+ * returns outcome, this chooses status).
+ */
 function sendCreateTicketResponse(
   response: Response,
   result: CreateTicketResult,
@@ -72,6 +87,14 @@ function sendCreateTicketResponse(
   );
 }
 
+/**
+ * Orchestrates POST /tickets — auth + upload + idempotent ticket creation.
+ *
+ * Flow: requireAuth → ticketImageUpload.single(image) (5 MiB limit via multer)
+ * → parseCreateTicketRequest → createTicketForUser (fingerprint+finalize image,
+ * DB ON CONFLICT) → sendCreateTicketResponse. Ensures orphan staging file is
+ * removed on throw/replay/conflict (unclaimedImagePath guard).
+ */
 async function handleCreateTicket(
   request: Request,
   response: Response,

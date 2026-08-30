@@ -38,11 +38,11 @@ sequenceDiagram
   Provider-->>Orders: succeeded, declined, or processing
   Orders-->>Buyer: 200 terminal result or 202 processing
 
-  Orders->>Orders: atomically update terminal order + outbox row
+  Orders->>Orders: atomically update terminal order + event publication ledger row (outbox pattern)
   Orders->>Redis: publish order.completed or order.expired
   Redis->>Consumer: deliver stream entry
   Consumer->>Tickets: apply only if lock still belongs to orderId
-  Consumer-->>Redis: acknowledge, inbox makes redelivery harmless
+  Consumer-->>Redis: acknowledge, processed-event ledger makes redelivery harmless (inbox pattern)
 ```
 
 ## Before the purchase: where `ticketId` and price come from
@@ -134,11 +134,11 @@ Resolution is transactional:
 
 A terminal HTTP response is `200`; a processing response is `202` with `Retry-After: 2`. An already-terminal attempt is returned without applying the transition again.
 
-## Terminal event: outbox → Redis → Tickets
+## Terminal event: event publication ledger → Redis → Tickets
 
-When Orders changes an order to `complete` or `expired`, it inserts an outbox row in the **same SQLite transaction**. The row contains a stable `messageId`, order aggregate ID/version, event type/version, creation time, and `{ "ticketId" }`. A uniqueness constraint on aggregate identity/version/event identity prevents the same logical event from being enqueued twice.
+When Orders changes an order to `complete` or `expired`, it inserts an event publication ledger row in the **same SQLite transaction**. The row contains a stable `messageId`, order aggregate ID/version, event type/version, creation time, and `{ "ticketId" }`. A uniqueness constraint on aggregate identity/version/event identity prevents the same logical event from being enqueued twice.
 
-The Orders worker publishes due unpublished rows to the `orders.events` Redis stream. Publish failures leave the row unpublished and schedule a retry. A crash after Redis accepts a message but before Orders marks it published can produce duplicate delivery; this is expected at-least-once behavior.
+The Orders worker publishes due unpublished rows to the `orders.events` Redis stream. Publish failures leave the event publication ledger row unpublished and schedule a retry. A crash after Redis accepts a message but before Orders marks it published can produce duplicate delivery; this is expected at-least-once behavior.
 
 The Tickets consumer uses a Redis consumer group, reads new entries, and periodically `XAUTOCLAIM`s abandoned entries. It validates the event envelope. Poison events go to `orders.events.dead-letter`; valid events are passed to Tickets' repository and acknowledged only after processing.
 
@@ -148,7 +148,7 @@ Tickets checks the event's `payload.ticketId` and `aggregateId` (the order ID) a
 - `order.expired` and a matching reservation → `available`, clearing the lock;
 - already sold/available, a different lock owner, or a missing row → record a diagnostic outcome without changing the row.
 
-The inbox primary key `(consumer, message_id)` is written in the same Tickets transaction as the state change. A redelivered message finds that marker and is acknowledged without applying the business update twice. The `locked_by_order_id = aggregateId` predicate is the stale-release guard: an old expiration event cannot free a newer order's reservation.
+The processed-event ledger primary key `(consumer, message_id)` is written in the same Tickets transaction as the state change. A redelivered message finds that marker and is acknowledged without applying the business update twice. The `locked_by_order_id = aggregateId` predicate is the stale-release guard: an old expiration event cannot free a newer order's reservation.
 
 ## Compact state, idempotency, and guard summary
 
@@ -159,7 +159,7 @@ The inbox primary key `(consumer, message_id)` is written in the same Tickets tr
 | Order | `pending → payment_processing → complete`; pending can become `expired` | Looked up by authenticated buyer; payment key is separate | `user_id` ownership, unexpired pending status, conditional status updates |
 | Payment attempt | `processing → succeeded` or `failed` | `(orderId, key)` + provider scenario | One active attempt; terminal resolution is harmless when repeated |
 | Provider payment | `processing → succeeded` or `declined` | `payment_attempt_id` + attempt/amount/currency/scenario fingerprint | Persistent provider row returns the original result for a duplicate call |
-| Order event | Outbox unpublished → published; Tickets inbox unseen → processed | Outbox event identity; inbox `(consumer, messageId)` | Durable outbox and inbox make retries safe, not exactly-once |
+| Order event | Event publication ledger unpublished → published; processed-event ledger unseen → processed | Event publication ledger identity; processed-event ledger `(consumer, messageId)` | Durable ledgers make retries safe, not exactly-once |
 
 The recurring implementation pattern is:
 
@@ -169,12 +169,12 @@ The recurring implementation pattern is:
 
 - **Authentication:** `common/src/index.ts` — `verifyAccessToken`, `requireAuth`, and `AuthenticatedUser`.
 - **Ticket HTTP and ownership:** `tickets/src/http/routes/create-ticket.ts`, `list-tickets.ts`, `list-my-tickets.ts`, and `update-ticket-price.ts`.
-- **Ticket state and reservation:** `tickets/src/tickets/ticket-repo.ts` — `reserveTicket`, `findReservation`, `releaseReservation`, and event convergence; `tickets/src/http/routes/internal-ticket-reservations.ts` — the private API.
-- **Purchase:** `orders/src/http/routes/create-order.ts` — HTTP input/output mapping; `orders/src/orders/purchase-workflow.ts` — validation, reservation retries, guarded release, and purchase results; `orders/src/orders/order-repo.ts` — purchase rows, order creation, expiration, and terminal outbox writes.
+- **Ticket state and reservation:** `tickets/src/tickets/ticket-repo.ts` — `reserveTicket`, `findReservation`, `releaseReservation`, and `applyOrderEventOnce`; `tickets/src/http/routes/internal-ticket-reservations.ts` — the private API.
+- **Purchase:** `orders/src/http/routes/create-order.ts` — HTTP input/output mapping; `orders/src/orders/purchase-workflow.ts` — validation, reservation retries, guarded release, and purchase results; `orders/src/orders/order-repo.ts` — purchase rows, order creation, expiration, and `enqueueTerminal`; `orders/src/messaging/order-event-publication.ts` — `OrderEventPublication`; `orders/src/messaging/order-event-publication-repo.ts` — `enqueueOrderEventPublication`, `listDueOrderEventPublications`, and terminal event publication ledger writes.
 - **Service boundary:** `orders/src/tickets-client.ts` — the only Orders-to-Tickets client and its status mapping.
 - **Payment:** `orders/src/http/routes/submit-payment.ts` — HTTP input/output mapping; `orders/src/payments/payment-workflow.ts` — validation, eligibility, idempotency, reservation verification, and provider coordination; `orders/src/payments/payment-attempt-repo.ts` and `local-provider.ts` — durable attempts and the simulated provider.
-- **Workers and events:** `orders/src/workers.ts`, `orders/src/messaging/outbox-repo.ts`, and `tickets/src/orders/order-events-consumer.ts`.
-- **Durable contracts:** `orders/migrations/005_create_purchase_operations.sql`, `006_rebuild_orders.sql`, `007_create_local_provider_payments.sql`, `003_create_outbox_messages.sql`, and `tickets/migrations/002_rebuild_ticket_locks_and_inbox.sql`.
+- **Workers and events:** `orders/src/workers.ts`, `orders/src/messaging/order-event-publication-repo.ts`, and `tickets/src/orders/order-events-consumer.ts`.
+- **Durable contracts:** `orders/migrations/005_create_purchase_operations.sql`, `006_rebuild_orders.sql`, `007_create_local_provider_payments.sql`, [`010_rename_outbox_messages.sql`](../orders/migrations/010_rename_outbox_messages.sql), and [`003_rename_inbox_messages.sql`](../tickets/migrations/003_rename_inbox_messages.sql).
 
 ## Caveats in the current implementation
 
@@ -182,5 +182,5 @@ The recurring implementation pattern is:
 - A provider success resolves the unconditional success branch from `payment_processing`, even if it arrives after `expiresAt`. The expiration scanner selects `pending` orders only; a stuck processing attempt waits for reconciliation.
 - The direct Tickets release route returns HTTP 200 with an outcome such as `not_matching`, and the Orders release helper treats any 2xx as transport success without interpreting that JSON. The Tickets SQL predicate still prevents a stale lock mutation.
 - An expired `reserved` row can remain reserved until the retry/expiration path runs; reservation lookup itself does not sweep expired locks.
-- Redis delivery is at least once, not exactly once. Stable event IDs and Tickets' inbox make duplicate application safe, while poison messages are sent to the dead-letter stream.
+- Redis delivery is at least once, not exactly once. Stable event IDs and the Tickets processed-event ledger make duplicate application safe, while poison messages are sent to the dead-letter stream.
 - Historical migrations may contain placeholder ticket snapshot values (`Unavailable`) for orders created before snapshot fields existed; those are compatibility data, not a fresh Tickets read.

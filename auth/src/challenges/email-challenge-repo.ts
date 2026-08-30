@@ -18,6 +18,16 @@ type ChallengeRow = {
 const CHALLENGE_TTL_MS = 10 * 60 * 1_000;
 const CHALLENGE_COOLDOWN_MS = 60 * 1_000;
 
+/**
+ * Issues a 6-digit email challenge code with cooldown and invalidation.
+ *
+ * Flow: signup/signin -> calls this with user+purpose (verify_email or
+ * signin_code). Generates randomInt code, hashes via scrypt, checks cooldown
+ * (1 per minute per user/purpose) by selecting latest active challenge ->
+ * if within cooldown returns null (route throttles) -> otherwise marks prior
+ * unused challenges used_at and INSERTs new row with TTL 10m. Returns plain
+ * code for sendCode; DB stores only hash.
+ */
 async function issueChallenge(user: PublicUser, purpose: ChallengePurpose): Promise<string | null> {
   const code = randomInt(0, 1_000_000).toString().padStart(6, "0");
   const codeHash = await hashSecret(code);
@@ -56,6 +66,17 @@ async function issueChallenge(user: PublicUser, purpose: ChallengePurpose): Prom
   }
 }
 
+/**
+ * Verifies a submitted email code and marks it consumed (single-use).
+ *
+ * Flow: POST /verify-email or /signin/code -> calls this with email+code+
+ * purpose. SELECTs latest unused challenge JOIN users -> if missing runs
+ * dummySecretCheck -> checks scrypt match, expiry, failed_attempts<5 -> on
+ * mismatch increments failed_attempts -> on success BEGIN IMMEDIATE, UPDATE
+ * used_at with guarded WHERE, if purpose verify_email sets
+ * email_verified_at = COALESCE(..., now), COMMIT. Returns PublicUser on
+ * success, null on failure. Guards prevent double-use.
+ */
 async function consumeChallenge(
   email: string,
   code: string,

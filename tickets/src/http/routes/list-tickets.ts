@@ -5,6 +5,14 @@ import { listAvailableTickets } from "../../tickets/ticket-repo.js";
 
 const router = Router();
 
+/**
+ * GET /tickets — paginated search of available tickets with filters.
+ *
+ * Flow: validates query via listTicketsQuerySchema (q, place, startsAfter/
+ * Before, min/maxPrice, page/pageSize) → 400 invalid_filters on fail →
+ * listAvailableTickets (WHERE status=available + predicates, COUNT+SELECT
+ * ordered by event_starts_at) → 200 TicketPage. Public, no auth.
+ */
 router.get("/tickets", (request, response) => {
   const parsed = listTicketsQuerySchema.safeParse(request.query);
   if (!parsed.success) {

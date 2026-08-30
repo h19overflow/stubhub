@@ -1,3 +1,10 @@
+/**
+ * Central error handler for Identity — maps thrown HttpErrors to JSON and hides internals.
+ *
+ * Flow: all routes throw HttpError for expected failures; parser errors (400 malformed JSON)
+ * are caught first; HttpError → its status+message; otherwise 500 generic + console.error.
+ * Must be last middleware (app.ts) and respects headersSent.
+ */
 import type { ErrorRequestHandler } from "express";
 
 // A route throws HttpError for an expected failure whose status and message are

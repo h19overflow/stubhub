@@ -17,8 +17,8 @@ Backend timestamps are stored as epoch milliseconds and exposed as ISO-8601 stri
 | Order lifecycle, captured amount, fixed deadline, immutable Ticket snapshot | Orders | `orders` |
 | Payment Attempt lifecycle and application reconciliation schedule | Orders | `payment_attempts` |
 | Deterministic provider acceptance/decline state | Local provider boundary inside Orders | `local_provider_payments` in the Orders SQLite file, committed through a separate provider transaction boundary |
-| Completion and expiration publication recovery | Orders | `outbox_messages` |
-| Tickets duplicate consumption and diagnostic convergence outcome | Tickets | Tickets inbox |
+| Completion and expiration publication recovery | Orders | `order_event_publications` |
+| Tickets duplicate consumption and diagnostic convergence outcome | Tickets | `processed_order_events` |
 | Expiration, purchase recovery, provider reconciliation, publication, and pending-entry recovery | Owning service workers | Durable state scans, never process timers |
 
 ## Orders data
@@ -216,11 +216,13 @@ Local behavior is deterministic:
 
 The planned outcome and `resolve_at` are immutable. Provider resolution uses current provider state plus the fixed deadline; it never follows a browser timer. Repeated submit or lookup returns the same provider record.
 
-### Orders outbox
+### Orders event publication ledger (outbox pattern)
 
-The existing `outbox_messages` concepts remain: stable message identity, aggregate type/identity/version, event type/version, JSON payload, publication progress, retry diagnostics, and uniqueness for one fact at one aggregate version. The Order terminal transition and its outbox message commit in the same Orders transaction.
+The existing `order_event_publications` concepts remain: stable message identity, aggregate type/identity/version, event type/version, JSON payload, publication progress, retry diagnostics, and uniqueness for one fact at one aggregate version. The Order terminal transition and its event publication ledger message commit in the same Orders transaction.
 
-Orders is not an event consumer in this slice. Historical migration `004_create_inbox_messages.sql` remains byte-for-byte unchanged because the migration ledger verifies applied files and checksums. A new forward Orders migration drops the unused inbox table. After that cutover is applied, the unused Orders inbox repository, types, and documentation references are removed. No dormant consumer abstraction remains.
+Orders is not an event consumer in this slice. Historical migration `004_create_inbox_messages.sql` remains byte-for-byte unchanged because the migration ledger verifies applied files and checksums. Historical migration `008_drop_inbox_messages.sql` removes the unused Orders processed-event table. Forward migration [`010_rename_outbox_messages.sql`](../../orders/migrations/010_rename_outbox_messages.sql) renames `outbox_messages` to `order_event_publications`, preserves every publication row, and recreates its due index. No dormant consumer abstraction remains.
+
+The historical definitions in `003_create_outbox_messages.sql` and `002_rebuild_ticket_locks_and_inbox.sql` remain byte-for-byte unchanged; only the forward migrations in this document rename their tables and indexes.
 
 ## Tickets data
 
@@ -259,12 +261,12 @@ The reservation command compares all three identity fields:
 - reserved by the same Order with another deadline: reservation conflict;
 - reserved by another Order or sold: unavailable.
 
-### Tickets inbox
+### Tickets processed-event ledger (inbox pattern)
 
-Tickets owns the only event inbox needed by this slice.
+Tickets owns the only processed-event ledger needed by this slice.
 
 ```sql
-CREATE TABLE inbox_messages (
+CREATE TABLE processed_order_events (
   consumer TEXT NOT NULL,
   message_id TEXT NOT NULL,
   event_type TEXT NOT NULL,
@@ -284,30 +286,32 @@ CREATE TABLE inbox_messages (
   PRIMARY KEY (consumer, message_id)
 ) STRICT;
 
-CREATE INDEX inbox_messages_processed
-  ON inbox_messages(processed_at, consumer, message_id);
+CREATE INDEX processed_order_events_processed
+  ON processed_order_events(processed_at, consumer, message_id);
 
-CREATE INDEX inbox_messages_aggregate_diagnostics
-  ON inbox_messages(aggregate_id, aggregate_version, processed_at);
+CREATE INDEX processed_order_events_aggregate_diagnostics
+  ON processed_order_events(aggregate_id, aggregate_version, processed_at);
 ```
 
 `consumer` is the stable `tickets-order-convergence` capability identity, not a running instance name. Event metadata and outcome provide durable local diagnostics without copying user, amount, email, or mutable Ticket data.
 
-Poison entries are moved to the dead-letter stream and do not enter this business inbox because a malformed envelope may not contain valid inbox metadata.
+Forward migration [`003_rename_inbox_messages.sql`](../../tickets/migrations/003_rename_inbox_messages.sql) preserves every processed-event row while renaming historical `inbox_messages` to `processed_order_events` and recreating the processed and aggregate-diagnostics indexes with their new names.
+
+Poison entries are moved to the dead-letter stream and do not enter this processed-event ledger because a malformed envelope may not contain valid ledger metadata.
 
 ### Tickets transaction helper
 
-One repository helper consumes each supported Order fact under a single Tickets database transaction:
+One repository helper, [`applyOrderEventOnce`](../../tickets/src/tickets/ticket-repo.ts), consumes each supported Order fact under a single Tickets database transaction:
 
 1. begin a write transaction;
 2. check the stable `(consumer, message_id)` marker and return duplicate when present;
 3. read current Ticket state and compute the diagnostic outcome;
 4. apply the exact guarded state change when permitted;
-5. insert the inbox marker with event metadata and final outcome;
+5. insert the processed-event ledger marker with event metadata and final outcome;
 6. commit;
 7. acknowledge the stream entry only after commit.
 
-For completion, the only mutation is reserved-to-sold with matching `locked_by_order_id`; it retains that Order identity and clears `lock_expires_at`. For expiration, the only mutation is matching reserved-to-available and clears both lock fields. If the guarded write no longer matches the state read, the helper rolls back and retries the whole local transaction rather than committing an incorrect inbox outcome.
+For completion, the only mutation is reserved-to-sold with matching `locked_by_order_id`; it retains that Order identity and clears `lock_expires_at`. For expiration, the only mutation is matching reserved-to-available and clears both lock fields. If the guarded write no longer matches the state read, the helper rolls back and retries the whole local transaction rather than committing an incorrect processed-event ledger outcome.
 
 The helper exposes no unguarded status update and no caller-controlled outcome.
 
@@ -350,9 +354,9 @@ Only `reserving -> completed`, `reserving -> releasing`, and `reserving|releasin
 3. Orders commits one transaction that conditionally changes its owned pending, unexpired Order to `payment_processing`, increments Order version, and inserts one processing Payment Attempt with scenario and due reconciliation time.
 4. Orders submits the captured amount/currency and stable provider idempotency identity in a separate local-provider transaction.
 5. Immediate provider terminal state or later provider reconciliation is applied in one Orders result transaction:
-   - success: Attempt becomes `succeeded`; Order becomes `complete`; Order version increments; one completion outbox message is inserted;
-   - decline before deadline: Attempt becomes `failed`; Order returns to `pending`; Order version increments; no outbox message;
-   - decline at/after deadline: Attempt becomes `failed`; Order becomes `expired`; Order version increments; one expiration outbox message is inserted;
+   - success: Attempt becomes `succeeded`; Order becomes `complete`; Order version increments; one completion event publication ledger message is inserted;
+   - decline before deadline: Attempt becomes `failed`; Order returns to `pending`; Order version increments; no event publication ledger message;
+   - decline at/after deadline: Attempt becomes `failed`; Order becomes `expired`; Order version increments; one expiration event publication ledger message is inserted;
    - unresolved: Attempt and Order remain processing; reconciliation diagnostics and next due time update without a terminal fact.
 
 The result transaction requires the Attempt and Order still be the expected processing pair. Provider response never writes Orders state directly. Exact terminal replay reads the existing Attempt and current Order without another provider call.
@@ -367,48 +371,48 @@ The result transaction requires the Attempt and Order still be the expected proc
 | Provider commits, before provider response reaches Orders | Provider record exists; Order/Attempt processing | Worker lookup returns the same provider record. No second provider payment is created. |
 | Provider returns unresolved | Both local records remain processing | Due reconciliation repeats lookup; expiration does not change the processing Order. |
 | Provider reaches planned terminal state before Orders observes it | Provider terminal; Order/Attempt processing | Reconciliation applies one guarded Orders result transaction. |
-| Orders result transaction commits, before client response | Attempt/Order terminal or Order returned pending; terminal fact may be in outbox | Same payment key replays without provider resubmission. Publisher handles any terminal fact. |
-| Decline returns Order pending, then deadline passes | Order pending and due | Expiration worker conditionally expires it and inserts expiration outbox message. |
+| Orders result transaction commits, before client response | Attempt/Order terminal or Order returned pending; terminal fact may be in the event publication ledger | Same payment key replays without provider resubmission. Publisher handles any terminal fact. |
+| Decline returns Order pending, then deadline passes | Order pending and due | Expiration worker conditionally expires it and inserts expiration event publication ledger message. |
 | Process restarts while Attempt processing | Due reconciliation index | Startup scan resumes provider lookup/submission using stable identity. |
 
 A raw provider scenario is accepted only from the API whitelist. Amount and currency always come from the Order. Provider processing prevents expiration until the result becomes known.
 
 ## Expiration consistency
 
-The expiration worker scans `orders_due_pending` on startup and at a bounded interval. For each due candidate, one Orders transaction conditionally changes `pending` to `expired` only when `expires_at <= now`, increments version, and inserts exactly one expiration outbox message for that new version.
+The expiration worker scans `orders_due_pending` on startup and at a bounded interval. For each due candidate, one Orders transaction conditionally changes `pending` to `expired` only when `expires_at <= now`, increments version, and inserts exactly one expiration event publication ledger message for that new version.
 
 | Condition | Result |
 |---|---|
 | Pending before deadline | No change. |
-| Pending at/after deadline | Expired plus outbox fact in one commit. |
+| Pending at/after deadline | Expired plus event publication ledger fact in one commit. |
 | Payment processing | No change; provider reconciliation owns the next decision. |
 | Complete | No change. |
 | Already expired | No change and no second terminal fact. |
 | Crash before transaction commit | Neither expiration nor fact exists; rescan retries. |
-| Crash after commit | Order is expired and outbox fact is durable; publisher recovery continues. |
+| Crash after commit | Order is expired and event publication ledger fact is durable; publisher recovery continues. |
 
 No in-memory timer is authoritative. Restart does not move `expires_at`, and a closed browser has no effect.
 
 ## Publication consistency
 
-The Orders terminal state and corresponding outbox row commit atomically. The publisher scans unpublished rows on startup and interval, appends to `orders.events`, and only then records publication success.
+The Orders terminal state and corresponding event publication ledger row commit atomically. The publisher scans unpublished rows on startup and interval, appends to `orders.events`, and only then records publication success.
 
 | Publisher window | Recovery |
 |---|---|
-| Crash before stream append | Outbox row remains unpublished and is retried. |
+| Crash before stream append | Event publication ledger row remains unpublished and is retried. |
 | Append succeeds, crash before publication mark | Same message may append again with the same `messageId`. |
 | Publication mark commits | Normal publication is complete. |
-| Temporary append failure | Attempt diagnostics update and the same outbox row is retried. |
+| Temporary append failure | Attempt diagnostics update and the same event publication ledger row is retried. |
 
 This is at-least-once publication. It never creates a new message identity for retry and never treats stream order as business authority.
 
 ## Tickets consumption and convergence
 
-Tickets reads `orders.events` through consumer group `tickets-order-convergence`. Running consumer names are unique instance identities; inbox identity remains stable across instances.
+Tickets reads `orders.events` through consumer group `tickets-order-convergence`. Running consumer names are unique instance identities; processed-event ledger identity remains stable across instances.
 
 For a valid supported entry:
 
-1. execute the Tickets inbox-plus-guarded-transition transaction helper;
+1. execute the Tickets processed-event ledger-plus-guarded-transition transaction helper;
 2. acknowledge only after commit;
 3. leave an uncommitted/unacknowledged entry pending after failure;
 4. inspect the group pending entries and use `XAUTOCLAIM` so another instance recovers entries abandoned by a failed consumer. Exact idle threshold, scan interval, and claim count are operational configuration.
@@ -417,18 +421,18 @@ Consumer crash windows:
 
 | Consumer window | Recovery |
 |---|---|
-| Crash before local transaction | No Ticket/inbox change and no acknowledgement; pending recovery reprocesses. |
-| Crash during local transaction | Both guarded change and inbox marker roll back; pending recovery reprocesses. |
-| Commit succeeds, crash before acknowledgement | Redelivery finds the inbox marker and makes no second Ticket change, then acknowledges. |
+| Crash before local transaction | No Ticket/processed-event ledger change and no acknowledgement; pending recovery reprocesses. |
+| Crash during local transaction | Both guarded change and processed-event ledger marker roll back; pending recovery reprocesses. |
+| Commit succeeds, crash before acknowledgement | Redelivery finds the processed-event ledger marker and makes no second Ticket change, then acknowledges. |
 | Duplicate delivery to another instance | Stable consumer/message primary key returns duplicate; no Ticket change. |
 | Late distinct terminal fact | Current Ticket state and exact `lockedByOrderId` choose safe mutation or diagnostic non-change. |
 | Poison entry | No Ticket transaction; dead-letter handling completes before original acknowledgement as defined in `events.md`. |
 
 ### Why no reverse convergence event is required
 
-For a valid completion or expiration fact, the consumer-group pending list remains durable delivery work until Tickets commits its authoritative guarded outcome. Acknowledgement after commit proves that one Tickets instance finished local handling. The inbox then provides durable duplicate suppression and diagnostic evidence of the exact aggregate version and outcome.
+For a valid completion or expiration fact, the consumer-group pending list remains durable delivery work until Tickets commits its authoritative guarded outcome. Acknowledgement after commit proves that one Tickets instance finished local handling. The processed-event ledger then provides durable duplicate suppression and diagnostic evidence of the exact aggregate version and outcome.
 
-Temporary Tickets failure leaves the entry pending for retry. Duplicate and late delivery are safe. A valid matching reservation therefore converges without Orders consuming a reverse acknowledgement event and without adding a second cross-service audit protocol. Orders retains its terminal state and outbox evidence; Tickets retains its inbox outcome. An impossible guarded non-match is acknowledged with a diagnostic outcome rather than mutating unsafe state, and is investigated from those two durable records.
+Temporary Tickets failure leaves the entry pending for retry. Duplicate and late delivery are safe. A valid matching reservation therefore converges without Orders consuming a reverse acknowledgement event and without adding a second cross-service audit protocol. Orders retains its terminal state and event publication ledger evidence; Tickets retains its processed-event ledger outcome. An impossible guarded non-match is acknowledged with a diagnostic outcome rather than mutating unsafe state, and is investigated from those two durable records.
 
 ## Worker scheduling and retry policy
 
@@ -440,10 +444,10 @@ Every worker scans durable due state on startup and at a configurable interval. 
 | Payment reconciliation | `payment_attempts_due_reconciliation` | Submit/lookup with stable provider idempotency; apply only verified terminal result. |
 | Local provider resolution | `local_provider_payments_due_resolution` | At/after fixed `resolve_at`, apply planned terminal outcome once. |
 | Pending expiration | `orders_due_pending` | Conditionally expire only currently pending due Orders. |
-| Outbox publisher | Unpublished outbox index | Append the same envelope/message identity; persist attempt count, last error, and attempt time. Compute retry eligibility from those durable values. |
-| Tickets pending recovery | Consumer-group pending inspection | Claim abandoned entries with `XAUTOCLAIM`; inbox and guards make repetition safe. |
+| Event publication ledger publisher | Unpublished event publication ledger index | Append the same envelope/message identity; persist attempt count, last error, and attempt time. Compute retry eligibility from those durable values. |
+| Tickets pending recovery | Consumer-group pending inspection | Claim abandoned entries with `XAUTOCLAIM`; processed-event ledger and guards make repetition safe. |
 
-Retry scheduling uses bounded exponential backoff with jitter for dependency/transport failures. Purchase and payment recovery persist explicit next-due timestamps; outbox publication derives its next eligibility from persisted `updated_at` and `attempt_count`; all retain concise last-error diagnostics. Business rejections and definitive guarded release outcomes are not retried. Deadline eligibility always uses current backend time and durable deadline, never the scheduled wake time.
+Retry scheduling uses bounded exponential backoff with jitter for dependency/transport failures. Purchase and payment recovery persist explicit next-due timestamps; event publication ledger publication derives its next eligibility from persisted `updated_at` and `attempt_count`; all retain concise last-error diagnostics. Business rejections and definitive guarded release outcomes are not retried. Deadline eligibility always uses current backend time and durable deadline, never the scheduled wake time.
 
 Exact base delay, cap, jitter range, scan interval, claim idle threshold, and batch size remain operational configuration because they do not change the business result.
 
@@ -452,14 +456,14 @@ Exact base delay, cap, jitter range, scan interval, claim idle threshold, and ba
 For the local learning implementation:
 
 - `orders.events` has no automatic trimming.
-- Published Orders outbox rows are retained.
-- Tickets inbox rows are retained for the full replayable stream history.
+- Published Orders event publication ledger rows are retained.
+- Tickets processed-event ledger rows are retained for the full replayable stream history.
 - Dead letters are retained for diagnosis.
 - Purchase operations, Orders, Payment Attempts, and local provider payments are retained as business/recovery history.
 
 This deliberately favors complete replay and diagnosis over cleanup at small volume. The ceiling is unbounded database and stream growth.
 
-A later measured policy must choose one replay horizon longer than the maximum supported consumer outage, retain outbox and Tickets inbox evidence for at least that horizon, and archive or rebuild older convergence evidence before coordinated stream trimming or inbox/outbox cleanup. Inbox evidence must never expire before a still-replayable message with the same identity.
+A later measured policy must choose one replay horizon longer than the maximum supported consumer outage, retain event publication ledger and processed-event ledger evidence for at least that horizon, and archive or rebuild older convergence evidence before coordinated stream trimming or ledger cleanup. Processed-event ledger evidence must never expire before a still-replayable message with the same identity.
 
 ## Required source changes
 
@@ -469,30 +473,29 @@ A later measured policy must choose one replay horizon longer than the maximum s
 - Rebuild `orders` with immutable Ticket snapshot fields and due-pending index; remove Order idempotency columns.
 - Rebuild `payment_attempts` with provider scenario, reconciliation diagnostics, consistency checks, and due index.
 - During cutover, convert legacy `pending`/`payment_processing` Orders to `expired` and legacy processing Payment Attempts to `failed`; those rows predate Tickets reservations and local-provider recovery state, so they must not remain payable or retryable.
-- Add `local_provider_payments` to the Orders SQLite file through a new Orders forward migration, plus a repository using its own provider transaction for idempotent submission, lookup, and planned resolution.
-- Retain and use the Orders outbox repository in terminal Order transactions.
-- Add a new forward migration that drops the unused Orders inbox table; retain historical migration `004_create_inbox_messages.sql` unchanged, then remove inbox repository/types/documentation after the cutover is applied.
+- Apply forward migration [`010_rename_outbox_messages.sql`](../../orders/migrations/010_rename_outbox_messages.sql) to rename `outbox_messages` to `order_event_publications` and recreate its due index. Retain historical migrations `004_create_inbox_messages.sql` and `008_drop_inbox_messages.sql` unchanged because the migration ledger verifies applied files and checksums.
+- Retain and use the Orders event publication ledger repository in terminal Order transactions.
 - Replace the current caller-authored Order insert with purchase-operation and guarded Order lifecycle repositories.
 - Add restricted transaction helpers for pending Order creation, payment start/result, and pending expiration.
 
 ### Orders workers/capabilities
 
-- Add purchase recovery, pending expiration, payment reconciliation, local-provider resolution, and outbox publication workers driven by durable due scans.
+- Add purchase recovery, pending expiration, payment reconciliation, local-provider resolution, and event publication ledger workers driven by durable due scans.
 - Ensure every worker scans on startup and interval and persists retry diagnostics.
 - Keep provider state behind its separate transaction boundary.
 
 ### Tickets migrations and repositories
 
 - Rebuild the Ticket state/lock constraint and add the unique non-null Order-lock index.
-- Add Tickets inbox with event metadata and diagnostic outcome.
+- Rename the historical Tickets event marker table to the processed-event ledger with forward migration [`003_rename_inbox_messages.sql`](../../tickets/migrations/003_rename_inbox_messages.sql), preserving rows and recreating its indexes with the new names.
 - Add exact idempotent reserve, matching-reservation read, and guarded purchase-recovery release repositories.
-- Add one inbox-plus-guarded sold/release transaction helper for committed Order facts.
+- Add one processed-event ledger-plus-guarded sold/release transaction helper for committed Order facts, exposed as `applyOrderEventOnce`.
 
 ### Tickets worker/capability
 
 - Add the Tickets convergence consumer for the accepted stream/group.
 - Acknowledge only after the local transaction commits.
-- Recover abandoned pending entries with `XAUTOCLAIM` and stable inbox identity.
+- Recover abandoned pending entries with `XAUTOCLAIM` and stable processed-event ledger identity.
 
 ## Explicit consistency boundaries
 
@@ -502,7 +505,7 @@ A later measured policy must choose one replay horizon longer than the maximum s
 - No Order expiration while payment is processing.
 - No Ticket sold/release without exact `lockedByOrderId`.
 - No reverse event for convergence.
-- No Orders event consumer or dormant Orders inbox.
+- No Orders event consumer or dormant processed-event ledger.
 - No browser-authoritative timer or worker eligibility.
 - No raw card data.
 - No implementation sequence and no sequence-diagram syntax in this document.

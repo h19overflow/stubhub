@@ -221,7 +221,7 @@ Do not read these yet:
 - `client/features/**` and CSS;
 - Kubernetes and Docker files;
 - migrations;
-- Redis Streams and outbox code;
+- Redis Streams, the event publication ledger (outbox pattern), and the processed-event ledger (inbox pattern) code;
 - expiration workers;
 - payment reconciliation;
 - complete repository files from top to bottom.
@@ -235,18 +235,19 @@ Only continue after the first session feels clear.
 
 Read in this order:
 
-1. `orders/src/http/routes/submit-payment.ts:1-32`
-2. `orders/src/payments/payment-workflow.ts:19-86`
-3. `orders/src/payments/payment-workflow.ts:88-171`
-4. `orders/src/orders/order-repo.ts:265-305`
-5. `orders/src/workers.ts:103-149`
-6. `tickets/src/orders/order-events-consumer.ts:69-81`
-7. `tickets/src/tickets/ticket-repo.ts:431-539`
+1. `orders/src/http/routes/submit-payment.ts:1-43` (`submitPayment`)
+2. `orders/src/payments/payment-workflow.ts:39-84` (`parsePaymentCommand`)
+3. `orders/src/payments/payment-workflow.ts:86-198` (`paymentResult`, `submitOrderPayment`)
+4. `orders/src/orders/order-repo.ts:300-354` (`enqueueTerminal`)
+5. `orders/src/messaging/order-event-publication-repo.ts` (publication repository functions)
+6. `orders/src/workers.ts:130-194` (`publishOrderEventPublication`, `scanOrderEventPublications`)
+7. `tickets/src/orders/order-events-consumer.ts:60-209` (`startOrderEventsConsumer`, including pending recovery)
+8. `tickets/src/tickets/ticket-repo.ts:609-671` (`applyOrderEventOnce`)
 
 This later path is:
 
 > verify reservation -> process payment -> update Order -> publish terminal
-> event -> make Ticket sold or available
+> event through the event publication ledger -> make Ticket sold or available
 
 Do not combine this with the first session.
 

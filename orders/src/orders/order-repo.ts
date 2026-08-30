@@ -50,6 +50,9 @@ function positiveIntegerSetting(name: string, fallback: number): number {
 
 const purchaseTtlMs = positiveIntegerSetting("ORDER_EXPIRATION_MS", 15 * 60_000);
 
+/**
+ * Fetches a raw OrderRow by id (used by the Orders worker and purchase workflow).
+ */
 function findOrderRow(id: string): OrderRow | null {
   return (
     (database.prepare(`SELECT ${columns} FROM orders WHERE id=?`).get(id) as
@@ -58,6 +61,11 @@ function findOrderRow(id: string): OrderRow | null {
   );
 }
 
+/**
+ * Fetches an Order owned by a user (authorization check); returns public Order or null.
+ *
+ * Flow: payment submit and GET /orders/:id use this to ensure caller owns the order.
+ */
 function findOrderByIdForUser(userId: string, id: string): Order | null {
   const row = database
     .prepare(`SELECT ${columns} FROM orders WHERE id=? AND user_id=?`)
@@ -65,6 +73,10 @@ function findOrderByIdForUser(userId: string, id: string): Order | null {
   return row ? toOrder(row) : null;
 }
 
+/**
+ * Lists a user's pending, payment_processing, and complete Orders for order
+ * history, excluding expired Orders (GET /orders).
+ */
 function listOrdersForUser(userId: string): Order[] {
   const rows = database
     .prepare(
@@ -77,6 +89,9 @@ function listOrdersForUser(userId: string): Order[] {
   return rows.map(toOrder);
 }
 
+/**
+ * Finds a purchase operation by user+idempotencyKey for replay detection.
+ */
 function findPurchase(userId: string, key: string): PurchaseRow | null {
   return (
     (database
@@ -95,6 +110,12 @@ function findPurchaseByOrderId(orderId: string): PurchaseRow | null {
   );
 }
 
+/**
+ * Atomically creates or replays only the durable reserving purchase operation
+ * and allocates its future Order ID with the idempotency guard.
+ *
+ * `completePurchase` inserts the Order after the reservation succeeds.
+ */
 function createPurchase(
   userId: string,
   key: string,
@@ -278,9 +299,9 @@ function duePending(now: number): string[] {
 
 /**
  * Atomically applies a guarded terminal order transition and inserts its matching
- * outbox event. Completed events require payment_processing; expired events require
- * a still-pending, already-expired order. Returns null when the guarded state no
- * longer matches, otherwise the transitioned durable order.
+ * event publication. Completed events require payment_processing; expired events
+ * require a still-pending, already-expired order. Returns null when the guarded
+ * state no longer matches, otherwise the transitioned durable order.
  */
 function enqueueTerminal(
   orderId: string,
@@ -312,7 +333,7 @@ function enqueueTerminal(
 
     database
       .prepare(
-        `INSERT INTO outbox_messages(
+        `INSERT INTO order_event_publications(
            id,aggregate_type,aggregate_id,aggregate_version,event_type,
            event_version,payload,created_at,updated_at,next_attempt_at
          )

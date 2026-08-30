@@ -21,6 +21,14 @@ const defaultPath = fileURLToPath(new URL("../data/identity.sqlite", import.meta
 const databasePath = process.env.IDENTITY_DB_PATH ?? defaultPath;
 if (databasePath !== ":memory:") mkdirSync(dirname(databasePath), { recursive: true });
 
+/**
+ * Loads numbered SQL migrations from disk and validates their contract.
+ *
+ * Flow: called once at startup by runMigrations(). Reads migrations/*.sql sorted
+ * lexicographically, enforces 001_name.sql naming, computes sha256 checksum,
+ * and checks contiguity (1..N). Checksum is later used to detect tampering
+ * with already-applied migrations. Throws on gap or bad filename.
+ */
 function loadMigrations(): Migration[] {
   const migrations: Migration[] = [];
   for (const name of readdirSync(migrationsPath).filter((file) => file.endsWith(".sql")).sort()) {
@@ -43,6 +51,14 @@ function loadMigrations(): Migration[] {
   return migrations;
 }
 
+/**
+ * Backfills schema_migrations for DBs that used PRAGMA user_version before ledger existed.
+ *
+ * Flow: runMigrations() calls this before normal migration. If schema_migrations
+ * is empty but user_version>0 and users table exists, inserts ledger rows for
+ * migrations 1..user_version so future runs use the ledger. No-op on fresh or
+ * already-migrated DBs. Uses BEGIN IMMEDIATE to avoid races.
+ */
 function adoptLegacyVersion(database: DatabaseSync, migrations: Migration[]): void {
   const { user_version: legacyVersion } = database.prepare("PRAGMA user_version").get() as {
     user_version: number;
@@ -74,6 +90,14 @@ function adoptLegacyVersion(database: DatabaseSync, migrations: Migration[]): vo
   }
 }
 
+/**
+ * Ensures Identity SQLite schema is current; creates ledger and applies pending migrations.
+ *
+ * Flow: startup -> creates schema_migrations table -> adoptLegacyVersion() ->
+ * validates already-applied rows (gap/checksum/name checks) -> applies remaining
+ * migrations each in a transaction (exec sql, insert ledger, bump user_version).
+ * Returns {applied,total} for logging. Idempotent and crash-safe per-migration.
+ */
 function runMigrations(database: DatabaseSync): { applied: number; total: number } {
   const migrations = loadMigrations();
   database.exec(`

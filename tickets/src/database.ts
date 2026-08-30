@@ -26,6 +26,13 @@ if (databasePath !== ":memory:") {
   mkdirSync(dirname(databasePath), { recursive: true });
 }
 
+/**
+ * Loads Tickets SQL migrations from disk with checksum validation.
+ *
+ * Flow: runMigrations startup helper. Reads migrations/*.sql, enforces
+ * 001_name.sql naming, sha256 checksum, contiguity 1..N. Used to detect
+ * tampered applied migrations later.
+ */
 function loadMigrations(): Migration[] {
   const migrations: Migration[] = [];
   for (const name of readdirSync(migrationsPath)
@@ -52,6 +59,12 @@ function loadMigrations(): Migration[] {
   return migrations;
 }
 
+/**
+ * Backfills schema_migrations from legacy PRAGMA user_version for Tickets DB.
+ *
+ * Flow: see auth/database counterpart; checks tickets table existence instead
+ * of users. Inserts ledger rows for 1..user_version so new ledger takes over.
+ */
 function adoptLegacyVersion(
   database: DatabaseSync,
   migrations: Migration[],
@@ -101,6 +114,13 @@ function adoptLegacyVersion(
   }
 }
 
+/**
+ * Brings Tickets SQLite to current schema (ledger + pending migrations).
+ *
+ * Flow: startup -> create schema_migrations -> adoptLegacyVersion -> validate
+ * applied (gap/checksum/name) -> apply remaining each in BEGIN IMMEDIATE
+ * transaction. Returns {applied,total}. Single process-wide connection (WAL).
+ */
 function runMigrations(
   database: DatabaseSync,
 ): { applied: number; total: number } {

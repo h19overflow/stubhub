@@ -31,6 +31,13 @@ type PaymentAttempt = {
   updatedAt: string;
 };
 
+/**
+ * Projects a PaymentAttemptRow to the public API shape (ISO dates, camelCase).
+ *
+ * Flow: payment-workflow and HTTP routes map DB rows through this so internal
+ * columns (reconcile counters, fingerprints) never leak. Converts created_at/
+ * updated_at ms to ISO strings.
+ */
 function toPaymentAttempt(row: PaymentAttemptRow): PaymentAttempt {
   return {
     id: row.id,

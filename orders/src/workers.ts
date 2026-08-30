@@ -32,11 +32,11 @@ import {
 import type { PaymentAttemptRow } from "./payments/payment-attempt.js";
 import { lookup, submit } from "./payments/local-provider.js";
 import {
-  listUnpublishedOutboxMessages,
-  markOutboxMessagePublished,
-  recordOutboxMessageFailure,
-} from "./messaging/outbox-repo.js";
-import type { OutboxMessage } from "./messaging/outbox-message.js";
+  listDueOrderEventPublications,
+  markOrderEventPublished,
+  recordOrderEventPublicationFailure,
+} from "./messaging/order-event-publication-repo.js";
+import type { OrderEventPublication } from "./messaging/order-event-publication.js";
 
 // Read worker timing from the environment once during service startup.
 function positiveIntegerSetting(name: string, fallback: number): number {
@@ -50,13 +50,14 @@ function positiveIntegerSetting(name: string, fallback: number): number {
   return value;
 }
 
-// `running` prevents a slow scan from overlapping the next timer tick.
 const intervalMs = positiveIntegerSetting("ORDERS_WORKER_INTERVAL_MS", 2_000);
 let timer: NodeJS.Timeout | null = null;
+// `running` means one scan is executing in this process. It prevents overlapping
+// scans and lets shutdown wait for active work; it does not represent durable work.
 let running = false;
 
-// Redis carries completed/expired Order facts to the Tickets consumer.
-// The connection is opened lazily only when an outbox message needs publishing.
+// Redis carries completed/expired Order facts to the Tickets service.
+// The connection is opened lazily only when a stored event is due for publication.
 const redis = createClient({
   url: process.env.REDIS_URL ?? "redis://redis:6379",
   socket: { connectTimeout: 1_000, reconnectStrategy: false },
@@ -70,7 +71,7 @@ async function scanPurchases(): Promise<void> {
   }
 }
 
-// Turn overdue pending Orders into expired Orders and durable outbox events.
+// Turn overdue pending Orders into expired Orders and durable event publications.
 function scanExpiration(): void {
   const now = Date.now();
   for (const id of duePending(now)) {
@@ -125,39 +126,53 @@ function scanPayments(): void {
   }
 }
 
-// Publish one durable outbox row to Redis. The database row is marked published
-// only after Redis accepts it, so a failed publish remains available for retry.
-async function publishMessage(message: OutboxMessage): Promise<void> {
+/**
+ * Publishes one durable event publication record before recording database progress.
+ *
+ * Redis XADD happens before the row is marked published. A restart in that gap
+ * republishes the same messageId, which the Tickets processed-event ledger can
+ * safely deduplicate. A failed attempt records retry state instead of removing
+ * the durable publication.
+ */
+async function publishOrderEventPublication(
+  publication: OrderEventPublication,
+): Promise<void> {
   const envelope = {
-    messageId: message.id,
-    eventType: message.eventType,
-    eventVersion: message.eventVersion,
-    aggregateType: message.aggregateType,
-    aggregateId: message.aggregateId,
-    aggregateVersion: message.aggregateVersion,
-    occurredAt: message.createdAt,
-    payload: message.payload,
+    messageId: publication.id,
+    eventType: publication.eventType,
+    eventVersion: publication.eventVersion,
+    aggregateType: publication.aggregateType,
+    aggregateId: publication.aggregateId,
+    aggregateVersion: publication.aggregateVersion,
+    occurredAt: publication.createdAt,
+    payload: publication.payload,
   };
   try {
     await redis.xAdd("orders.events", "*", {
       event: JSON.stringify(envelope),
     });
-    markOutboxMessagePublished(message.id);
+    markOrderEventPublished(publication.id);
   } catch (error) {
-    recordOutboxMessageFailure(
-      message,
-      error instanceof Error ? error.message : "publish failed",
+    recordOrderEventPublicationFailure(
+      publication,
+      error instanceof Error ? error.message : "publication failed",
       Date.now(),
     );
   }
 }
 
-// Publish a bounded batch of due outbox rows. Tickets consumes these events to
-// mark its matching reservation sold or release it after expiration.
-async function scanOutbox(): Promise<void> {
+/**
+ * Reloads a bounded batch of due unpublished event publications from the Orders
+ * database.
+ *
+ * The database, not this process, owns the retry queue. After a restart this
+ * scan reconnects Redis, republishes due rows, and persists connection or
+ * publication failures for a later scan.
+ */
+async function scanOrderEventPublications(): Promise<void> {
   const now = Date.now();
-  const messages = listUnpublishedOutboxMessages(now, 100);
-  if (messages.length === 0) return;
+  const publications = listDueOrderEventPublications(now, 100);
+  if (publications.length === 0) return;
 
   if (!redis.isOpen) {
     try {
@@ -165,20 +180,25 @@ async function scanOutbox(): Promise<void> {
     } catch (error) {
       const reason =
         error instanceof Error ? error.message : "Redis connection failed";
-      for (const message of messages) {
-        recordOutboxMessageFailure(message, reason, now);
+      for (const publication of publications) {
+        recordOrderEventPublicationFailure(publication, reason, now);
       }
       return;
     }
   }
 
-  for (const message of messages) {
-    await publishMessage(message);
+  for (const publication of publications) {
+    await publishOrderEventPublication(publication);
   }
 }
 
-// Run every background responsibility once. One failure is logged, and the
-// interval can try the remaining durable work again on the next scan.
+/**
+ * Runs each durable worker scan without overlapping a previous iteration.
+ *
+ * An interrupted scan leaves unfinished state in its owning database; a later
+ * invocation rereads that state. A failure is logged so the recurring scan can
+ * retry work that was not reached.
+ */
 async function scan(): Promise<void> {
   if (running) return;
   running = true;
@@ -186,7 +206,7 @@ async function scan(): Promise<void> {
     await scanPurchases();
     scanPayments();
     scanExpiration();
-    await scanOutbox();
+    await scanOrderEventPublications();
   } catch (error) {
     console.error("Orders worker scan failed", error);
   } finally {
@@ -194,14 +214,24 @@ async function scan(): Promise<void> {
   }
 }
 
-// Orders calls this before opening its HTTP listener, so recovery begins as the
-// service starts rather than waiting for the first interval.
+/**
+ * Performs one recovery scan before installing the recurring worker timer.
+ *
+ * Awaiting the first scan makes an Orders restart inspect already-due durable
+ * work immediately instead of leaving it idle until the first interval.
+ */
 async function startWorkers(): Promise<void> {
   await scan();
   timer = setInterval(() => void scan(), intervalMs);
 }
 
-// Shutdown stops new scans, waits for the active scan, then closes Redis.
+/**
+ * Stops future scans, waits for the active scan, then closes Redis.
+ *
+ * Graceful shutdown narrows the uncertain publish window. An abrupt shutdown
+ * remains recoverable because unpublished rows and stable message IDs are
+ * durable rather than process-local.
+ */
 async function stopWorkers(): Promise<void> {
   if (timer) clearInterval(timer);
   timer = null;

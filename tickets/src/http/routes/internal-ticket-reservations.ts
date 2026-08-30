@@ -15,6 +15,15 @@ import { HttpError } from "../error-handler.js";
 const router = Router();
 router.use("/internal", requireInternalAuth);
 
+/**
+ * PUT /internal/tickets/:ticketId/reservation — authoritative reservation (Orders→Tickets).
+ *
+ * Flow: requireInternalAuth (INTERNAL_SERVICE_TOKEN timing-safe) → validates
+ * ticketId + {orderId, expiresAt} (future ISO) → reserveTicket (BEGIN IMMEDIATE
+ * guarded: not_found→404, conflict→409 reservation_conflict on deadline mismatch,
+ * unavailable→409) → reserved 201 / replayed 200 {reservation}. Single writer
+ * for Ticket status; outbox not involved here (sync RPC).
+ */
 router.put(
   "/internal/tickets/:ticketId/reservation",
   (request, response) => {
@@ -56,6 +65,13 @@ router.put(
   },
 );
 
+/**
+ * GET /internal/tickets/:ticketId/reservation/:orderId — verifies a reservation is held.
+ *
+ * Flow: internal auth → validates ticketId+orderId UUIDs → findReservation →
+ * 404 reservation_not_found if not reserved by that order; else 200 {reservation}.
+ * Used by Orders payment workflow to ensure ticket still locked before beginPayment.
+ */
 router.get(
   "/internal/tickets/:ticketId/reservation/:orderId",
   (request, response) => {
@@ -81,6 +97,14 @@ router.get(
   },
 );
 
+/**
+ * POST /internal/.../release — releases a lock only if held by that order (expiration).
+ *
+ * Flow: internal auth → validates IDs, requires empty body → releaseReservation
+ * (BEGIN IMMEDIATE, guards locked_by_order_id, handles already_available/sold/
+ * not_matching/missing via outcome) → 200 {outcome}. Idempotent; stale release
+ * checks lockedByOrderId so it never unlocks a newer reservation.
+ */
 router.post(
   "/internal/tickets/:ticketId/reservation/:orderId/release",
   (request, response) => {

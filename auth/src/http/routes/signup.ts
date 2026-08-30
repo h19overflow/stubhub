@@ -9,6 +9,15 @@ import { credentialsSchema } from "../schemas.js";
 
 const router = express.Router();
 
+/**
+ * POST /signup — creates an unverified user and sends a verification code.
+ *
+ * Flow: validate via credentialsSchema → createUser (409 if email taken) →
+ * if emailCodesDisabled return 201 without code; else issueChallenge
+ * (verify_email, 1/min cooldown) → sendCode (swallowed on SMTP failure) →
+ * always 201 with {user, verificationRequired, emailSent}. Rate-limited
+ * (authRateLimit 15/min). Throws HttpError handled by errorHandler.
+ */
 router.post("/signup", authRateLimit, async (request, response) => {
   const result = credentialsSchema.safeParse(request.body);
   if (!result.success) {

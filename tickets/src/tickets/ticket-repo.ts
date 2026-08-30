@@ -38,10 +38,23 @@ const ticketColumns = `
 
 type Predicate = { sql: string; bindings: Array<number | string> };
 
+/**
+ * Escapes SQLite LIKE wildcards (%_ and backslash) for safe pattern search.
+ *
+ * Flow: availablePredicates uses this before building q/place LIKE queries
+ * with ESCAPE '\\', so user input cannot inject wildcard behavior.
+ */
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
 }
 
+/**
+ * Fetches a raw TicketRow by primary key (single row, no projection).
+ *
+ * Flow: internal helper for all repo operations (reserve, release, price
+ * update, convergence). Returns null if not found; caller maps via toTicket
+ * or returns not_found.
+ */
 function readTicketById(id: string): TicketRow | null {
   const row = database
     .prepare(`SELECT ${ticketColumns} FROM tickets WHERE id = ?`)
@@ -49,6 +62,12 @@ function readTicketById(id: string): TicketRow | null {
   return row ?? null;
 }
 
+/**
+ * Fetches a ticket by owner + idempotency key for idempotent create.
+ *
+ * Flow: createTicket uses this on CONFLICT to distinguish replay (same
+ * fingerprint) vs conflict (different fingerprint, same key). Indexed unique.
+ */
 function readTicketByOwnerKey(
   ownerId: string,
   idempotencyKey: string,
@@ -63,11 +82,24 @@ function readTicketByOwnerKey(
   return row ?? null;
 }
 
+/**
+ * Commits the current BEGIN IMMEDIATE transaction and returns the value.
+ *
+ * Flow: tiny helper so success paths can do return commit(value) without
+ * forgetting COMMIT. Errors are caught by callers ROLLBACK.
+ */
 function commit<T>(result: T): T {
   database.exec("COMMIT");
   return result;
 }
 
+/**
+ * Builds the Reservation snapshot from a locked TicketRow.
+ *
+ * Flow: reserveTicket and findReservation use this to return the durable
+ * reservation seen by Orders (ticketId, orderId, expiresAt, price snapshot).
+ * Throws if row has no active lock — indicates caller logic error.
+ */
 function toReservation(row: TicketRow): Reservation {
   if (!row.locked_by_order_id || row.lock_expires_at === null) {
     throw new Error("Ticket does not have an active reservation");
@@ -91,6 +123,12 @@ function toReservation(row: TicketRow): Reservation {
   };
 }
 
+/**
+ * Wraps a ticket array with pagination metadata.
+ *
+ * Flow: listAvailableTickets/listOwnedTickets compute total count then call
+ * this to build {tickets, pagination:{page,pageSize,total,totalPages}}.
+ */
 function pageFor(
   tickets: Ticket[],
   page: number,
@@ -108,6 +146,15 @@ function pageFor(
   };
 }
 
+/**
+ * Builds the WHERE clause and bindings for available ticket search.
+ *
+ * Flow: listAvailableTickets calls this with TicketFilters (q, place,
+ * startsAfter/Before, min/maxPrice). Always filters status=available plus
+ * optional SQLite `LIKE ... COLLATE NOCASE`, range, and price predicates.
+ * Uses escapeLike for LIKE safety and returns {sql,bindings} for the COUNT
+ * and SELECT queries.
+ */
 function availablePredicates(filters: TicketFilters): Predicate {
   const sql = ["status = ?"];
   const bindings: Array<number | string> = ["available"];
@@ -146,6 +193,14 @@ function availablePredicates(filters: TicketFilters): Predicate {
   return { sql: `WHERE ${sql.join(" AND ")}`, bindings };
 }
 
+/**
+ * Idempotently creates a ticket; replays same fingerprint, conflicts on differ.
+ *
+ * Flow: tickets service create-ticket workflow -> calls this in BEGIN
+ * IMMEDIATE. INSERT ... ON CONFLICT(owner_id,idempotency_key) DO NOTHING;
+ * if inserted -> created; else SELECT by ownerKey -> if fingerprint matches
+ * -> replayed, else conflict. All branches COMMIT. ROLLBACK on error.
+ */
 function createTicket(input: CreateTicketInput): CreateTicketResult {
   database.exec("BEGIN IMMEDIATE");
   try {
@@ -210,6 +265,14 @@ function createTicket(input: CreateTicketInput): CreateTicketResult {
   }
 }
 
+/**
+ * Updates price only if ticket is owned and available (guarded).
+ *
+ * Flow: PUT /tickets/:id/price -> calls this. UPDATE ... WHERE id+owner_id
+ * AND status=available; if 1 row -> updated; else checks existence -> not_found
+ * vs unavailable (reserved/sold). COMMIT per branch, ROLLBACK on error.
+ * Prevents price changes on reserved/sold tickets.
+ */
 function updateTicketPrice(
   ownerId: string,
   ticketId: string,
@@ -247,6 +310,13 @@ function updateTicketPrice(
   }
 }
 
+/**
+ * Paginated search of available tickets with filters and stable ordering.
+ *
+ * Flow: GET /tickets -> calls this. Uses availablePredicates for WHERE,
+ * COUNT for total, then SELECT ordered by event_starts_at, id with LIMIT/OFFSET.
+ * Returns TicketPage via pageFor. Only status=available rows are visible.
+ */
 function listAvailableTickets(filters: TicketFilters): TicketPage {
   const predicates = availablePredicates(filters);
   const count = database
@@ -274,6 +344,12 @@ function listAvailableTickets(filters: TicketFilters): TicketPage {
   );
 }
 
+/**
+ * Paginated list of tickets owned by a user (any status).
+ *
+ * Flow: GET /tickets/mine (auth) -> calls this. COUNT + SELECT WHERE owner_id
+ * ordered by created_at DESC. Used for seller dashboard. Returns TicketPage.
+ */
 function listOwnedTickets(
   ownerId: string,
   page: number,
@@ -300,11 +376,27 @@ function listOwnedTickets(
   );
 }
 
+/**
+ * Public read of a single ticket by id (any status, for detail page).
+ *
+ * Flow: GET /tickets/:id -> calls this. Thin wrapper over readTicketById +
+ * toTicket. Returns null if missing (route sends 404).
+ */
 function findTicketById(id: string): Ticket | null {
   const row = readTicketById(id);
   return row ? toTicket(row) : null;
 }
 
+/**
+ * Authoritatively reserves an available ticket for an Order (Tickets owns this).
+ *
+ * Flow: Orders -> PUT /internal/tickets/:id/reservation -> calls this in
+ * BEGIN IMMEDIATE. Checks: not_found, same order+same expiry -> replayed,
+ * same order+different expiry -> conflict, status!=available -> unavailable,
+ * other ticket already holds orderId -> unavailable (Orders one-order-per-ticket
+ * guard), then guarded UPDATE status=reserved, lock fields where
+ * status=available. Returns reserved/replayed/conflict/unavailable/not_found.
+ */
 function reserveTicket(
   ticketId: string,
   orderId: string,
@@ -371,6 +463,13 @@ function reserveTicket(
   }
 }
 
+/**
+ * Reads the active reservation for a ticket+order pair (read-only).
+ *
+ * Flow: GET /internal/tickets/:id/reservation/:orderId (verify) and payment
+ * verification use this. Returns null if not reserved or lock mismatch;
+ * otherwise the Reservation snapshot. No transaction needed (read).
+ */
 function findReservation(
   ticketId: string,
   orderId: string,
@@ -386,6 +485,15 @@ function findReservation(
   return toReservation(row);
 }
 
+/**
+ * Releases a reservation only if locked by the given order (guarded).
+ *
+ * Flow: POST .../release (Orders expiration) and order.expired convergence
+ * call this. BEGIN IMMEDIATE: missing->missing, available->already_available,
+ * sold->sold (idempotent terminal), lock mismatch->not_matching, else
+ * UPDATE status=available, clear locks where status=reserved and lock matches.
+ * Guards prevent unlocking a newer reservation (lockedByOrderId check).
+ */
 function releaseReservation(
   ticketId: string,
   orderId: string,
@@ -454,7 +562,7 @@ function convergenceOutcome(
 }
 
 /**
- * Applies the guarded completion transition inside consumeOrderEvent's
+ * Applies the guarded completion transition inside applyOrderEventOnce's
  * transaction. Only a reserved ticket locked by this event's order becomes
  * sold; an unexpected row count throws so the receipt cannot commit falsely.
  */
@@ -476,7 +584,7 @@ function applySoldConvergence(event: OrderEvent): void {
 }
 
 /**
- * Applies the guarded expiration transition inside consumeOrderEvent's
+ * Applies the guarded expiration transition inside applyOrderEventOnce's
  * transaction. Only a reserved ticket locked by this event's order becomes
  * available and loses its reservation; an unexpected row count throws.
  */
@@ -499,13 +607,13 @@ function applyReleaseConvergence(event: OrderEvent): void {
 }
 
 /**
- * Atomically consumes an order event by checking the inbox, applying the
- * guarded Ticket transition, and recording the inbox receipt in one
+ * Atomically applies an order event by checking the processed-event ledger,
+ * applying the guarded Ticket transition, and recording its receipt in one
  * transaction. A duplicate commits no state change and returns
  * `{ duplicate: true }`; first processing returns its outcome. Errors roll
  * back both changes so the Redis caller can retry without acknowledging.
  */
-function consumeOrderEvent(
+function applyOrderEventOnce(
   event: OrderEvent,
 ): { duplicate: boolean; outcome?: ConvergenceOutcome } {
   const consumer = "tickets-order-convergence";
@@ -514,7 +622,7 @@ function consumeOrderEvent(
     const duplicate = database
       .prepare(
         `SELECT 1
-         FROM inbox_messages
+         FROM processed_order_events
          WHERE consumer = ? AND message_id = ?`,
       )
       .get(consumer, event.messageId);
@@ -532,7 +640,7 @@ function consumeOrderEvent(
 
     database
       .prepare(
-        `INSERT INTO inbox_messages (
+        `INSERT INTO processed_order_events (
            consumer,
            message_id,
            event_type,
@@ -563,7 +671,7 @@ function consumeOrderEvent(
 }
 
 export {
-  consumeOrderEvent,
+  applyOrderEventOnce,
   createTicket,
   findReservation,
   findTicketById,

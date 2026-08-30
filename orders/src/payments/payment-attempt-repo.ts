@@ -145,10 +145,11 @@ function updateProviderReference(
 
 /**
  * Resolves a processing payment attempt and its guarded order transition in one
- * transaction, inserting an outbox event when the order becomes complete or expired.
- * A decline returns the order to pending while unexpired, or expires it otherwise.
- * Returns null when the attempt is absent; an already terminal attempt is returned
- * unchanged, and a lost processing-order transition throws so the transaction rolls back.
+ * transaction, inserting an event publication when the order becomes complete or
+ * expired. A decline returns the order to pending while unexpired, or expires it
+ * otherwise. Returns null when the attempt is absent; an already terminal attempt
+ * is returned unchanged, and a lost processing-order transition throws so the
+ * transaction rolls back.
  */
 function resolveAttempt(
   id: string,
@@ -209,7 +210,7 @@ function resolveAttempt(
     if (order.status === "complete" || order.status === "expired") {
       database
         .prepare(
-          `INSERT INTO outbox_messages(
+          `INSERT INTO order_event_publications(
              id,aggregate_type,aggregate_id,aggregate_version,event_type,
              event_version,payload,created_at,updated_at,next_attempt_at
            )

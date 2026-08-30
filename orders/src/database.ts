@@ -22,6 +22,11 @@ const defaultPath = fileURLToPath(new URL("../data/orders.sqlite", import.meta.u
 const databasePath = process.env.ORDERS_DB_PATH ?? defaultPath;
 if (databasePath !== ":memory:") mkdirSync(dirname(databasePath), { recursive: true });
 
+/**
+ * Loads Orders SQL migrations with checksum/contiguity checks.
+ *
+ * Flow: runMigrations startup; same pattern as Identity/Tickets but for orders db.
+ */
 function loadMigrations(): Migration[] {
   const migrations: Migration[] = [];
   for (const name of readdirSync(migrationsPath).filter((file) => file.endsWith(".sql")).sort()) {
@@ -44,6 +49,12 @@ function loadMigrations(): Migration[] {
   return migrations;
 }
 
+/**
+ * Backfills Orders schema_migrations from legacy user_version.
+ *
+ * Flow: reads legacy user_version, verifies only that the orders table exists,
+ * then inserts matching migration ledger rows.
+ */
 function adoptLegacyVersion(database: DatabaseSync, migrations: Migration[]): void {
   const { user_version: legacyVersion } = database.prepare("PRAGMA user_version").get() as {
     user_version: number;
@@ -75,6 +86,11 @@ function adoptLegacyVersion(database: DatabaseSync, migrations: Migration[]): vo
   }
 }
 
+/**
+ * Ensures Orders SQLite is current (ledger + migrations) in single connection WAL mode.
+ *
+ * Flow: startup -> create ledger -> adoptLegacyVersion -> validate applied -> apply pending.
+ */
 function runMigrations(database: DatabaseSync): { applied: number; total: number } {
   const migrations = loadMigrations();
   database.exec(`
@@ -130,6 +146,13 @@ const database = new DatabaseSync(databasePath, { timeout: 5_000 });
 database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
 const migrationResult = runMigrations(database);
 
+/**
+ * Runs Orders work on the module-level shared Orders SQLite connection with
+ * `BEGIN IMMEDIATE`, `COMMIT`, and `ROLLBACK` on error.
+ *
+ * This boundary allows enqueueTerminal to commit the Order transition and its
+ * event publication row together.
+ */
 function withTransaction<T>(work: () => T): T {
   database.exec("BEGIN IMMEDIATE");
   try {

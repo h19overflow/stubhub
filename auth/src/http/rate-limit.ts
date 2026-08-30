@@ -1,5 +1,12 @@
 import type { RequestHandler } from "express";
 
+/**
+ * Fixed-window in-memory rate limiter for auth endpoints (ponytail: per-process only).
+ *
+ * Flow: key = method:path:ip, 15 req/60s; exceeded → 429+Retry-After. Bucket reset
+ * via setInterval sweep. Sufficient for single Identity pod; move to Redis before
+ * scaling replicas.
+ */
 const WINDOW_MS = 60_000;
 const REQUEST_LIMIT = 15;
 const buckets = new Map<string, { count: number; resetAt: number }>();

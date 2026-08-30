@@ -11,6 +11,14 @@ import { HttpError } from "../error-handler.js";
 
 const router = Router();
 
+/**
+ * PATCH /tickets/:ticketId/price — owner-only price update on available tickets.
+ *
+ * Flow: requireAuth → validates ticketId UUID + body {priceCents} →
+ * updateTicketPriceRecord (guarded UPDATE where status=available) →
+ * updated→200 {ticket}, not_found→404, otherwise 409 ticket_unavailable
+ * (reserved/sold cannot be edited). Prevents price mutation mid-reservation.
+ */
 router.patch("/tickets/:ticketId/price", requireAuth, (request, response) => {
   const ticketId = ticketIdSchema.safeParse(request.params.ticketId);
   if (!ticketId.success) {

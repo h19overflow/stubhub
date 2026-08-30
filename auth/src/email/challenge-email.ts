@@ -7,6 +7,14 @@ const transporter = nodemailer.createTransport({
   secure: false,
 });
 
+/**
+ * Sends the verification/signin code via SMTP (Mailpit in dev).
+ *
+ * Flow: after issueChallenge, route calls this. Chooses subject/text based on
+ * purpose (verify_email vs signin_code). Uses nodemailer transporter
+ * configured from SMTP_HOST/PORT/EMAIL_FROM env. Code is plain 6 digits with
+ * 10-minute expiry notice. Fire-and-forget from route perspective (awaited).
+ */
 async function sendCode(email: string, purpose: ChallengePurpose, code: string): Promise<void> {
   const verifyingEmail = purpose === "verify_email";
   await transporter.sendMail({

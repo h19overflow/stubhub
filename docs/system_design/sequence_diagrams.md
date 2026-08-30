@@ -132,12 +132,12 @@ sequenceDiagram
     O->>PC: Submit captured charge
     PC->>PC: Commit provider success
     PC-->>O: Return confirmed success
-    O->>OD: Commit completion and outbox
+    O->>OD: Commit completion and event publication ledger (outbox pattern)
     OD-->>O: Local commit complete
     O-->>B: Return succeeded payment
 ```
 
-**Contract and invariant notes:** The browser uses `POST /orders/:orderId/payments` with `{paymentMethodToken: "local.success"}` and a payment key. Orders verifies ownership, pending status, backend deadline, and `GET /internal/tickets/:ticketId/reservation/:orderId` before provider submission. One Orders transaction changes `pending -> payment_processing` and inserts the processing Payment Attempt. The provider connection uses the same Orders SQLite file but a separate transaction boundary. A second Orders transaction changes Payment Attempt `processing -> succeeded`, Order `payment_processing -> complete`, and inserts `order.completed` v1 into the outbox atomically.
+**Contract and invariant notes:** The browser uses `POST /orders/:orderId/payments` with `{paymentMethodToken: "local.success"}` and a payment key. Orders verifies ownership, pending status, backend deadline, and `GET /internal/tickets/:ticketId/reservation/:orderId` before provider submission. One Orders transaction changes `pending -> payment_processing` and inserts the processing Payment Attempt. The provider connection uses the same Orders SQLite file but a separate transaction boundary. A second Orders transaction changes Payment Attempt `processing -> succeeded`, Order `payment_processing -> complete`, and inserts `order.completed` v1 into the event publication ledger atomically.
 
 ### 5B. At-least-once completion convergence
 
@@ -154,12 +154,12 @@ sequenceDiagram
     R-->>P: Confirm append
     P->>OD: Mark published
     R-->>C: Deliver completion fact
-    C->>TD: Commit inbox and sold guard
+    C->>TD: Commit processed-event ledger (inbox pattern) and sold guard
     TD-->>C: Commit complete
     C-->>R: Acknowledge
 ```
 
-**Contract and invariant notes:** The publisher appends `order.completed` v1 to `orders.events` as one JSON envelope in field `event`, retaining the outbox `messageId`. Tickets consumes through `tickets-order-convergence`. Its local transaction inserts the stable inbox marker and changes matching `reserved -> sold`, retaining the Order identity and clearing the lock deadline. ACK occurs only after commit. The payment response does not wait for this asynchronous convergence.
+**Contract and invariant notes:** The publisher appends `order.completed` v1 to `orders.events` as one JSON envelope in field `event`, retaining the event publication ledger `messageId`. Tickets consumes through `tickets-order-convergence`. Its local transaction inserts the stable processed-event ledger marker and changes matching `reserved -> sold`, retaining the Order identity and clearing the lock deadline. ACK occurs only after commit. The payment response does not wait for this asynchronous convergence.
 
 ## 6. Confirmed decline with time remaining
 
@@ -183,7 +183,7 @@ sequenceDiagram
     O-->>B: Return declined payment
 ```
 
-**Contract and invariant notes:** The public path is `POST /orders/:orderId/payments` with `local.decline`. The same eligibility and reservation checks apply. Before the deadline, the result transaction changes Payment Attempt `processing -> failed` and Order `payment_processing -> pending`. The Ticket remains reserved and no outbox fact is created. A decline is a `200` observed outcome, not an error. A later attempt repeats all eligibility checks.
+**Contract and invariant notes:** The public path is `POST /orders/:orderId/payments` with `local.decline`. The same eligibility and reservation checks apply. Before the deadline, the result transaction changes Payment Attempt `processing -> failed` and Order `payment_processing -> pending`. The Ticket remains reserved and no event publication ledger fact is created. A decline is a `200` observed outcome, not an error. A later attempt repeats all eligibility checks.
 
 ## 7. Processing payment succeeds after the displayed deadline
 
@@ -222,7 +222,7 @@ sequenceDiagram
     PC->>PC: Resolve planned success
     O->>PC: Reconcile provider result
     PC-->>O: Return confirmed success
-    O->>OD: Commit completion and outbox
+    O->>OD: Commit completion and event publication ledger
     OD-->>O: Local commit complete
     B->>O: Read returned order
     O->>OD: Read owner order
@@ -230,7 +230,7 @@ sequenceDiagram
     P->>OD: Read completion fact
 ```
 
-**Contract and invariant notes:** Provider resolution occurs in its separate transaction. Orders then changes Payment Attempt `processing -> succeeded`, Order `payment_processing -> complete`, and inserts `order.completed` v1 atomically. `GET /orders/:orderId` polls this already-returned Order. Publication and guarded sold convergence then follow diagram 5B.
+**Contract and invariant notes:** Provider resolution occurs in its separate transaction. Orders then changes Payment Attempt `processing -> succeeded`, Order `payment_processing -> complete`, and inserts `order.completed` v1 atomically. `GET /orders/:orderId` polls this already-returned Order. Event publication ledger publication and guarded sold convergence then follow diagram 5B.
 
 ## 8. Processing payment declines after deadline
 
@@ -269,15 +269,15 @@ sequenceDiagram
     PC->>PC: Resolve planned decline
     O->>PC: Reconcile provider result
     PC-->>O: Return confirmed decline
-    O->>OD: Commit expiration and outbox
+    O->>OD: Commit expiration and event publication ledger
     OD-->>O: Local commit complete
     O->>R: Publish expiration fact
     R-->>TD: Deliver through Tickets consumer
-    TD->>TD: Commit inbox and release guard
+    TD->>TD: Commit processed-event ledger and release guard
     TD-->>R: Acknowledge after commit
 ```
 
-**Contract and invariant notes:** The Orders result transaction changes Payment Attempt `processing -> failed`, Order `payment_processing -> expired`, and inserts `order.expired` v1 atomically. The outbox publisher, omitted as a participant to keep the diagram narrow, publishes to `orders.events`. The Tickets convergence capability consumes through `tickets-order-convergence`; its local transaction changes matching `reserved -> available`, clears both lock fields, and commits the inbox marker before ACK. `GET /orders/:orderId` later returns the expired non-payable Order.
+**Contract and invariant notes:** The Orders result transaction changes Payment Attempt `processing -> failed`, Order `payment_processing -> expired`, and inserts `order.expired` v1 atomically. The event publication ledger publisher, omitted as a participant to keep the diagram narrow, publishes to `orders.events`. The Tickets convergence capability consumes through `tickets-order-convergence`; its local transaction changes matching `reserved -> available`, clears both lock fields, and commits the processed-event ledger marker before ACK. `GET /orders/:orderId` later returns the expired non-payable Order.
 
 ## 9. Payment submission races pending expiration
 
@@ -298,7 +298,7 @@ sequenceDiagram
         OD-->>E: Expiration rejected
         O-->>B: Continue provider flow
     else Expiration wins
-        OD-->>E: Expiration and outbox committed
+        OD-->>E: Expiration and event publication ledger committed
         OD-->>O: Payment rejected
         O-->>B: Return not payable
     end
@@ -315,27 +315,27 @@ sequenceDiagram
     participant R as Redis
     participant C as Tickets consumer
     participant TD as Tickets DB
-    P->>OD: Read unpublished message
+    P->>OD: Read unpublished event publication ledger message
     P->>R: Append message M1
     R--xP: Append response lost
     P->>OD: Read message M1 again
     P->>R: Append message M1 again
     R-->>C: Deliver first M1
-    C->>TD: Commit inbox and guard
+    C->>TD: Commit processed-event ledger and guard
     TD-->>C: Commit complete
     C--xR: Crash before acknowledge
     C->>R: Claim pending M1
     R-->>C: Redeliver M1
-    C->>TD: Check inbox M1
+    C->>TD: Check processed-event ledger M1
     TD-->>C: Duplicate no change
     C-->>R: Acknowledge
     R-->>C: Deliver second M1
-    C->>TD: Check inbox M1
+    C->>TD: Check processed-event ledger M1
     TD-->>C: Duplicate no change
     C-->>R: Acknowledge
 ```
 
-**Contract and invariant notes:** M1 is the same stable `messageId` for either accepted terminal fact. Publisher retry may append it twice when append succeeded but publication progress did not commit. Consumer recovery uses pending inspection and `XAUTOCLAIM`; the abbreviated `Claim pending M1` message represents that exact operation. The stable Tickets inbox key suppresses both redelivery and duplicate append. Ticket mutation happens at most once.
+**Contract and invariant notes:** M1 is the same stable `messageId` for either accepted terminal fact. Event publication ledger retry may append it twice when append succeeded but publication progress did not commit. Consumer recovery uses pending inspection and `XAUTOCLAIM`; the abbreviated `Claim pending M1` message represents that exact operation. The stable Tickets processed-event ledger key suppresses both redelivery and duplicate append. Ticket mutation happens at most once.
 
 ## 11. Restart recovery from durable state
 
@@ -360,12 +360,12 @@ sequenceDiagram
     W->>OD: Save payment result
     W->>OD: Scan due pending orders
     W->>OD: Apply guarded expiration
-    W->>OD: Scan unpublished messages
+    W->>OD: Scan unpublished event publication ledger messages
     OD-->>W: Return stable messages
     W->>R: Republish stable messages
 ```
 
-**Contract and invariant notes:** Startup and interval scans recover `purchase_operations`, processing Payment Attempts, due pending Orders, and unpublished outbox rows. Reservation/release retries use the exact internal paths and stable identities from earlier diagrams. Provider retries use the stable provider idempotency identity. Expiration is conditional and inserts its outbox fact locally. No process timer or prior instance memory is authoritative.
+**Contract and invariant notes:** Startup and interval scans recover `purchase_operations`, processing Payment Attempts, due pending Orders, and unpublished event publication ledger rows. Reservation/release retries use the exact internal paths and stable identities from earlier diagrams. Provider retries use the stable provider idempotency identity. Expiration is conditional and inserts its event publication ledger fact locally. No process timer or prior instance memory is authoritative.
 
 ### 11B. Tickets pending recovery
 
@@ -377,7 +377,7 @@ sequenceDiagram
     C->>R: Inspect pending entries
     C->>R: Claim abandoned entry
     R-->>C: Return pending fact
-    C->>TD: Commit inbox and guard
+    C->>TD: Commit processed-event ledger and guard
     TD-->>C: Commit complete
     C-->>R: Acknowledge
 ```
@@ -423,8 +423,8 @@ sequenceDiagram
 | 7A and 7B | PAY-6, PAY-7, PAY-9 | Payment POST and Order GET | `order.completed` v1 after reconciliation |
 | 8A and 8B | PAY-5 through PAY-7, EX-2, EX-5, EX-6 | Payment POST and Order GET | `order.expired` v1 and guarded release |
 | 9 | EX-1 through EX-4 | Payment POST and reservation GET | Expiration fact only if expiration wins |
-| 10 | PAY-3, PAY-8, EX-3, EX-5 | No public call | Same message identity, pending recovery, inbox suppression |
-| 11A and 11B | TP-8, TP-9, PAY-6, EX-3, EX-6 | Exact internal retries where applicable | Unpublished outbox and `XAUTOCLAIM` recovery |
+| 10 | PAY-3, PAY-8, EX-3, EX-5 | No public call | Same message identity, pending recovery, processed-event ledger suppression |
+| 11A and 11B | TP-8, TP-9, PAY-6, EX-3, EX-6 | Exact internal retries where applicable | Unpublished event publication ledger and `XAUTOCLAIM` recovery |
 | 12 | OH-1 through OH-6 | My Orders GET and Order detail GET | Read-only and no cross-service authorization |
 
 ## Final consistency notes

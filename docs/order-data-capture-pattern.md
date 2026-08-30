@@ -21,7 +21,7 @@ flowchart LR
   P -->|internal PUT: ticketId, orderId, expiresAt| T[Tickets: lock + current price]
   T -->|reservation snapshot| C[Orders: captured order amount]
   C -->|orderId + payment token| Pay[Payment route]
-  Pay -->|verify lock; provider uses captured amount| W[Worker + outbox]
+  Pay -->|verify lock; provider uses captured amount| W[Worker + event publication ledger (outbox pattern)]
   W -->|owner-guarded event| T
   C -->|201 / 200 / 202 result| UI
 ```
@@ -201,18 +201,19 @@ continue without the browser.
 4. If the provider is delayed, the worker reconciles it. `resolveAttempt`
    atomically changes the attempt and order: success leads to `complete`;
    decline returns to `pending` only if the deadline is still in the future,
-   otherwise it becomes `expired`. Terminal changes write an outbox event.
+   otherwise it becomes `expired`. Terminal changes write an event publication ledger row.
 
 Reservation ownership is a safety invariant, not just a convenience:
 Tickets releases or marks a ticket sold only when both `ticketId` and
 `orderId` match the current reserved lock. An old release or terminal event
 therefore cannot free or sell a newer owner's reservation. The Tickets
-consumer records message IDs in `inbox_messages`, so duplicate events are
-also harmless. (Sources: `orders/src/database.ts :: withTransaction`;
+consumer records message IDs in the processed-event ledger (inbox pattern, stored in
+`processed_order_events`), so duplicate events are also harmless. (Sources:
+`orders/src/database.ts :: withTransaction`;
 `orders/src/orders/order-repo.ts :: createPurchase`, `completePurchase`;
 `orders/src/payments/payment-attempt-repo.ts :: beginPayment`, `resolveAttempt`;
 `tickets/src/tickets/ticket-repo.ts :: releaseReservation`,
-`applySoldConvergence`, `applyReleaseConvergence`, `consumeOrderEvent`.)
+`tickets/src/tickets/ticket-repo.ts :: applyOrderEventOnce`.)
 
 ## 7. Return only the server result
 
@@ -267,8 +268,9 @@ start-order key, `Kp` is the payment key, and `A` is the payment-attempt ID.
    `payment_processing`. The provider receives the persisted amount `P`; it
    returns a processing result, so the first response is HTTP 202.
 9. The worker later resolves `A` as succeeded, changes `O` to `complete`, and
-   writes an `order.completed` event for `T`. Tickets consumes it once and
-   marks `T` sold only if the reservation is still owned by `O`.
+   writes an `order.completed` event to the event publication ledger. Tickets
+   consumes it once and marks `T` sold only if the reservation is still owned by
+   `O`.
 
 If an old expiry or release event arrives after a new reservation owns `T`,
 the lock-owner predicate rejects it. If the payment declines, the same
@@ -276,7 +278,7 @@ transaction returns the order to `pending` only before `E`; after `E`, the
 order becomes `expired`. These are the same seven steps under a different
 outcome, not special client-side repairs. (Sources: `orders/src/orders/order-repo.ts
 :: completePurchase`, `enqueueTerminal`; `orders/src/payments/payment-attempt-repo.ts
-:: resolveAttempt`; `tickets/src/tickets/ticket-repo.ts :: consumeOrderEvent`.)
+:: resolveAttempt`; `tickets/src/tickets/ticket-repo.ts :: applyOrderEventOnce`.)
 
 ## One small exercise
 

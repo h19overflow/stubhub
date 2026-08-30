@@ -36,6 +36,14 @@ const scenarios = new Set<ProviderScenario>([
   "local.processing-decline",
 ]);
 
+/**
+ * Validates the POST /orders/:id/pay body and Idempotency-Key into a command.
+ *
+ * Flow: HTTP layer -> calls this with userId, orderId, key, body. Validates
+ * key is 1-128 printable chars and body has single paymentMethodToken in the
+ * allowed ProviderScenario set. Throws 400 AppError on invalid input. Returns
+ * trusted PaymentCommand for submitOrderPayment.
+ */
 function parsePaymentCommand(
   userId: string,
   orderId: string,
@@ -75,6 +83,13 @@ function parsePaymentCommand(
   };
 }
 
+/**
+ * Reduces a persisted PaymentAttempt status to the public PaymentResult shape.
+ *
+ * Flow: maps succeeded->succeeded, failed->declined, processing->processing
+ * and pairs with the Order. Used for both new submissions and idempotent
+ * replays so response is consistent.
+ */
 function paymentResult(order: Order, attempt: PaymentAttempt): PaymentResult {
   const outcome =
     attempt.status === "succeeded"
@@ -85,6 +100,18 @@ function paymentResult(order: Order, attempt: PaymentAttempt): PaymentResult {
   return { outcome, order, paymentAttempt: attempt };
 }
 
+/**
+ * Submits a payment for an Order with idempotency and reservation verification.
+ *
+ * Flow: POST /orders/:id/pay -> parsePaymentCommand -> calls this. Steps:
+ * 1) findOrderByIdForUser (404 if not owned), 2) rowByKey replay check
+ * (409 on fingerprint mismatch), 3) processing() check (return existing
+ * processing attempt), 4) status/expiry gate (409 order_not_payable),
+ * 5) verify() reservation still held, 6) beginPayment (creates processing row
+ * with guarded insert), 7) submit to local provider, 8) updateProviderReference
+ * 9) if processing return, else resolveAttempt. Each guard makes retries safe;
+ * verify ensures Tickets rechecks availability.
+ */
 async function submitOrderPayment(
   command: PaymentCommand,
 ): Promise<PaymentResult> {

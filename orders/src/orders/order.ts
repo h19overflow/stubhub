@@ -37,6 +37,14 @@ type Order = {
   updatedAt: string;
 };
 
+/**
+ * Projects an OrderRow to the public Order JSON (ISO dates, nested ticket snapshot).
+ *
+ * Flow: purchase-workflow and order queries map rows via this. Converts
+ * expires_at/created_at/updated_at and ticket event timestamps to ISO. Keeps
+ * amount_cents/currency/status/version intact. Snapshot fields come from the
+ * Tickets reservation at create time (immutable).
+ */
 function toOrder(row: OrderRow): Order {
   return {
     id: row.id,

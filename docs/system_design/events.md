@@ -51,7 +51,7 @@ Orders has committed the terminal transition to `complete` after a verified succ
 
 ### Producer
 
-Orders outbox publisher.
+Orders event publication ledger (outbox pattern) publisher.
 
 ### Consumer
 
@@ -85,7 +85,7 @@ Orders has committed the terminal transition to `expired`. This includes a pendi
 
 ### Producer
 
-Orders outbox publisher.
+Orders event publication ledger publisher.
 
 ### Consumer
 
@@ -125,42 +125,42 @@ The matching-order guard prevents a delayed expiration from unlocking a newer re
 | Retention for local learning | No automatic trimming |
 | Dead letter stream | `orders.events.dead-letter` |
 
-The durable inbox consumer identity is the stable Tickets convergence capability/group, not a running-instance name. This lets a redelivery handled by another instance still find the original `messageId` marker.
+The durable processed-event ledger (inbox pattern) consumer identity is the stable Tickets convergence capability/group, not a running-instance name. This lets a redelivery handled by another instance still find the original `messageId` marker.
 
 `aggregateId` is the entity-ordering key for diagnosis and any future routing strategy. The current stream's observed order is not authority. Ticket state plus exact `lockedByOrderId` remains the authorization rule even if distinct facts are delayed or observed out of order.
 
 ## Publication rule and crash windows
 
-Orders records the terminal Order transition and its outbox message atomically in the same local commit. The outbox publisher later appends the envelope to `orders.events` and records publication progress.
+Orders records the terminal Order transition and its event publication ledger message atomically in the same local commit. The event publication ledger publisher later appends the envelope to `orders.events` and records publication progress.
 
 | Crash window | Required recovery |
 |---|---|
 | Before the local commit | Neither terminal state nor publishable fact exists. No publication occurs. |
-| After local commit, before stream append | The outbox message remains unpublished and is retried. |
+| After local commit, before stream append | The event publication ledger message remains unpublished and is retried. |
 | After stream append, before publication progress is recorded | The same envelope may be appended again with the same `messageId`. This is expected at-least-once delivery. |
 | After publication progress is recorded | Normal publication is complete. A previously duplicated append remains safe. |
 
-The publisher must never mint a new `messageId` for retry of the same outbox message. Publication order cannot authorize a business transition.
+The publisher must never mint a new `messageId` for retry of the same event publication ledger message. Publication order cannot authorize a business transition.
 
 ## Consumption, acknowledgement, and crash windows
 
-For each supported envelope, Tickets begins one local database transaction, records the inbox marker for the stable convergence consumer and `messageId`, and applies the guarded Ticket transition in that same transaction. Tickets acknowledges the stream entry only after that transaction commits.
+For each supported envelope, Tickets begins one local database transaction, records the processed-event ledger marker for the stable convergence consumer and `messageId`, and applies the guarded Ticket transition in that same transaction. Tickets acknowledges the stream entry only after that transaction commits.
 
 | Condition or crash window | Required behavior |
 |---|---|
-| Inbox marker already exists for `messageId` | Make no Ticket change and acknowledge the duplicate. |
-| Crash before the Tickets transaction commits | Neither inbox marker nor Ticket transition is committed; do not acknowledge. The pending entry is recoverable. |
-| Crash after transaction commit, before acknowledgement | Redelivery finds the inbox marker, makes no additional change, and acknowledges. |
-| Guard produces no Ticket change | Commit the inbox marker with the guarded non-change, retain diagnostics when the state is unexpected, then acknowledge. Repetition must not spin forever. |
+| Processed-event ledger marker already exists for `messageId` | Make no Ticket change and acknowledge the duplicate. |
+| Crash before the Tickets transaction commits | Neither processed-event ledger marker nor Ticket transition is committed; do not acknowledge. The pending entry is recoverable. |
+| Crash after transaction commit, before acknowledgement | Redelivery finds the processed-event ledger marker, makes no additional change, and acknowledges. |
+| Guard produces no Ticket change | Commit the processed-event ledger marker with the guarded non-change, retain diagnostics when the state is unexpected, then acknowledge. Repetition must not spin forever. |
 | Consumer instance disappears with pending entries | Inspect the consumer group's pending entries and claim recoverable work with another instance. Exact idle thresholds, scan frequency, and claim limits belong to operational configuration. |
 
-Inbox retention must cover the stream's replayable history. With no automatic stream trimming in the local learning setup, inbox cleanup is not selected yet.
+Processed-event ledger retention must cover the stream's replayable history. With no automatic stream trimming in the local learning setup, processed-event ledger cleanup is not selected yet.
 
 ## Duplicate, late, and out-of-order behavior
 
 ### Same `messageId`
 
-A duplicate is a no-op after the first committed inbox marker and guarded transition. This remains true when another running instance receives the duplicate.
+A duplicate is a no-op after the first committed processed-event ledger marker and guarded transition. This remains true when another running instance receives the duplicate.
 
 ### Distinct late facts
 
@@ -214,7 +214,7 @@ With no automatic trimming, a new Tickets convergence group can replay `orders.e
 
 Replay is safe because:
 
-- the same `messageId` is suppressed by the inbox marker;
+- the same `messageId` is suppressed by the processed-event ledger marker;
 - a new stable consumer identity may observe old facts, but guarded Ticket transitions remain idempotent;
 - sold and release require current state plus exact `lockedByOrderId`;
 - replay never changes an Order;
@@ -224,7 +224,7 @@ Replay can repair missed convergence only while the event remains available and 
 
 ## Retention ceiling
 
-No automatic trimming is the smallest reliable local-learning choice because it preserves full replay while event volume is small. Its known ceiling is unbounded stream and matching inbox growth.
+No automatic trimming is the smallest reliable local-learning choice because it preserves full replay while event volume is small. Its known ceiling is unbounded stream and matching processed-event ledger growth.
 
 Upgrade when measured event rate, storage growth, or required recovery time makes that ceiling material. The later policy must measure the longest required replay horizon and maximum supported consumer outage, retain data beyond that horizon, and define how older convergence evidence is archived or rebuilt before bounded trimming is enabled.
 
@@ -248,6 +248,6 @@ These interactions are immediate decisions, read-only observations, local presen
 ## Deferred to later design
 
 - Public and internal operation contracts.
-- Persistence schemas beyond the required atomic outbox/inbox rules above.
+- Persistence schemas beyond the required atomic event publication ledger/processed-event ledger rules above.
 - Operational timing, capacity, alerting, and dead-letter review procedures.
 - Sequence diagrams.

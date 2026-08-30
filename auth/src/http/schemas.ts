@@ -2,7 +2,12 @@ import { z } from "zod";
 
 const email = z.string().trim().toLowerCase().max(320).pipe(z.email());
 
-export const credentialsSchema = z.object({
+export /**
+ * Zod schema for email+password signup/signin (email normalized, password 8-72 chars).
+ *
+ * Flow: signup/signin routes parse body through this before user-repo calls.
+ */
+const credentialsSchema = z.object({
   email,
   password: z.string().min(8).max(256),
 });

@@ -19,6 +19,14 @@ type TicketsResponse = {
 const baseUrl = process.env.TICKETS_SERVICE_URL ?? "http://tickets:3002";
 const token = process.env.INTERNAL_SERVICE_TOKEN;
 
+/**
+ * Authenticated fetch to the Tickets internal API.
+ *
+ * Flow: reserve/verify/release all go through this. Attaches INTERNAL_SERVICE_TOKEN
+ * as Bearer, sets JSON content-type, 5s abort timeout. Throws AppError 503 if
+ * fetch fails or Tickets is unreachable, so purchase/payment workflows can
+ * persist a retry (schedulePurchase) instead of failing the order.
+ */
 async function call(path: string, init?: RequestInit): Promise<Response> {
   if (!token) throw new Error("INTERNAL_SERVICE_TOKEN is required");
 
@@ -41,6 +49,15 @@ async function call(path: string, init?: RequestInit): Promise<Response> {
   }
 }
 
+/**
+ * Reserves a ticket in the Tickets service for an Order (authoritative availability check).
+ *
+ * Flow: purchase-workflow processPurchase() -> calls this with ticketId, orderId,
+ * expiresAt (ISO). PUT /internal/tickets/:id/reservation. Maps 404 -> ticket_not_found,
+ * 409+reservation_conflict -> reservation_conflict, 409 otherwise -> ticket_unavailable,
+ * other non-2xx -> dependency_unavailable. Returns Reservation (snapshot + price)
+ * on success for completePurchase to persist.
+ */
 async function reserve(
   ticketId: string,
   orderId: string,
@@ -78,6 +95,14 @@ async function reserve(
   );
 }
 
+/**
+ * Verifies that a ticket is still reserved for the given Order (payment gate).
+ *
+ * Flow: payment-workflow submitOrderPayment() calls this before beginPayment to
+ * ensure the reservation hasn't expired/been stolen. GET
+ * /internal/tickets/:ticketId/reservation/:orderId. 404 -> reservation_mismatch
+ * (treated as order_not_payable), else 503. Returns Reservation on success.
+ */
 async function verify(
   ticketId: string,
   orderId: string,
@@ -101,6 +126,13 @@ async function verify(
   );
 }
 
+/**
+ * Releases a ticket reservation for an Order (rollback/expire path).
+ *
+ * Flow: processRelease() calls this when purchase expires or is abandoned.
+ * POST .../release. Any non-2xx throws 503 so schedulePurchase can retry the
+ * releasing state. Idempotent on Tickets side via lockedByOrderId guard.
+ */
 async function release(ticketId: string, orderId: string): Promise<void> {
   const response = await call(
     `/internal/tickets/${encodeURIComponent(ticketId)}/reservation/${encodeURIComponent(orderId)}/release`,

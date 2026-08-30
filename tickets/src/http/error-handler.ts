@@ -1,3 +1,10 @@
+/**
+ * Central error handler for Tickets — handles JSON parse, multer limits, and domain HttpErrors.
+ *
+ * Flow: malformed JSON → 400 invalid_reservation/invalid_price (by path); Multer
+ * LIMIT_FILE_SIZE → 413 image_too_large; HttpError → its status+code; else 500.
+ * Must be last middleware.
+ */
 import type { ErrorRequestHandler } from "express";
 import multer from "multer";
 

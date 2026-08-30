@@ -6,6 +6,13 @@ import { listOwnedTickets } from "../../tickets/ticket-repo.js";
 
 const router = Router();
 
+/**
+ * GET /tickets/mine — authenticated paginated list of tickets owned by caller.
+ *
+ * Flow: requireAuth → validates pagination (page/pageSize) → 400 invalid_pagination
+ * → listOwnedTickets(ownerId) ordered by created_at DESC → 200 TicketPage.
+ * Seller dashboard; auth ensures owner isolation.
+ */
 router.get("/tickets/mine", requireAuth, (request, response) => {
   const parsed = paginationSchema.safeParse(request.query);
   if (!parsed.success) {

@@ -36,6 +36,15 @@ type PreparedTicketImage = {
   requestFingerprint: string;
 };
 
+/**
+ * Validates and fingerprints the uploaded image, then moves it to final storage.
+ *
+ * Flow: createTicket -> calls this with fields+staging path+ticketId. Steps:
+ * inspectImage (magic-byte check for jpg/png/webp) -> fingerprintCreateRequest
+ * (sha256 of fields JSON + file bytes for idempotency) -> finalizeImage (rename
+ * to <ticketId>.ext in uploads). Returns {path,filename,requestFingerprint}
+ * for DB insert. Throws 415 on unsupported format.
+ */
 async function prepareTicketImage(
   fields: CreateTicketFields,
   imagePath: string,
@@ -47,6 +56,14 @@ async function prepareTicketImage(
   return { path, filename: basename(path), requestFingerprint };
 }
 
+/**
+ * Builds the DB CreateTicketInput from the HTTP command plus prepared image.
+ *
+ * Flow: maps CreateTicketFields string dates via Date.parse to ms, carries
+ * ownerId/idempotencyKey, and injects image.filename + fingerprint. Keeps
+ * priceCents/place/ticketInfo verbatim. Called between prepareTicketImage
+ * and ticket-repo createTicket.
+ */
 function toCreateTicketInput(
   command: CreateTicketCommand,
   ticketId: string,
@@ -66,6 +83,15 @@ function toCreateTicketInput(
   };
 }
 
+/**
+ * Orchestrates ticket creation with image cleanup on failure/replay.
+ *
+ * Flow: POST /tickets (multipart) -> route calls this with ownerId+fields+
+ * staging path+idempotencyKey. Generates randomUUID ticketId, prepares image,
+ * calls ticket-repo createTicket (idempotent on owner_id+idempotency_key).
+ * On replay/conflict removes the newly finalized image; on throw also removes
+ * staging/final image. Returns {created|replayed|conflict}.
+ */
 async function createTicket(
   command: CreateTicketCommand,
 ): Promise<CreateTicketResult> {

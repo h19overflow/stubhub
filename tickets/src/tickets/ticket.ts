@@ -132,6 +132,13 @@ type ConvergenceOutcome =
   | "not_matching"
   | "missing";
 
+/**
+ * Projects a TicketRow to the public Ticket JSON (ISO dates, image URL).
+ *
+ * Flow: ticket-repo reads map through this. Converts event_starts_at/_ends_at,
+ * created_at/updated_at ms to ISO, builds imageUrl from image_filename.
+ * Keeps ownership/status/lock fields internal.
+ */
 function toTicket(row: TicketRow): Ticket {
   return {
     id: row.id,

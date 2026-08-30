@@ -1,3 +1,12 @@
+/**
+ * Zod schemas for Tickets — validates public and internal HTTP contracts.
+ *
+ * Flow: routes parse through these before repo calls. Covers ticketId/orderId UUIDs,
+ * reservation commands, order events (for consumer), idempotency keys, createTicket
+ * (with eventEndsAt>eventStartsAt refine), updatePrice, and paginated search filters
+ * (including cross-field refines for date/price ranges). parseQueryNumber coerces
+ * query strings to numbers before validation.
+ */
 import { z } from "zod";
 
 function parseQueryNumber(value: unknown): unknown {

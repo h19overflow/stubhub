@@ -31,6 +31,13 @@ const ticketImageUpload = multer({
   limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 7 },
 });
 
+/**
+ * Validates that a file is JPEG, PNG, or WebP by magic bytes.
+ *
+ * Flow: prepareTicketImage -> calls this. Reads first 12 bytes; checks
+ * JPEG FF D8 FF, PNG 89 50 4E..., WebP RIFF....WEBP. Returns extension+mime
+ * for finalizeImage. Throws HttpError 415 on mismatch, closing file handle.
+ */
 async function inspectImage(path: string): Promise<ImageInspection> {
   const file = await open(path, "r");
   try {
@@ -64,6 +71,13 @@ async function inspectImage(path: string): Promise<ImageInspection> {
   throw new HttpError(415, "Image must be JPEG, PNG, or WebP", "unsupported_image");
 }
 
+/**
+ * SHA-256 fingerprints the create-ticket request (fields + image bytes).
+ *
+ * Flow: used as idempotency key content hash; stored as request_fingerprint.
+ * Replayed requests with same fingerprint return replayed; different content
+ * with same idempotencyKey returns conflict. Hashes JSON(fields)+'\0'+file bytes.
+ */
 async function fingerprintCreateRequest(data: unknown, path: string): Promise<string> {
   const hash = createHash("sha256");
   hash.update(JSON.stringify(data));
@@ -76,6 +90,13 @@ async function fingerprintCreateRequest(data: unknown, path: string): Promise<st
   return hash.digest("hex");
 }
 
+/**
+ * Moves a validated staging image to its final ticket path.
+ *
+ * Flow: after inspect+fingerprint, renames <staging>.upload to
+ * uploads/<ticketId>.<ext>. Returns final path for DB image_filename.
+ * Single rename is atomic on same filesystem.
+ */
 async function finalizeImage(
   path: string,
   ticketId: string,
@@ -86,6 +107,12 @@ async function finalizeImage(
   return finalPath;
 }
 
+/**
+ * Best-effort removal of a staging or finalized image (force=true).
+ *
+ * Flow: createTicket cleanup path calls this on failure or when DB reports
+ * replay/conflict, so orphan files do not accumulate. Swallows missing-file.
+ */
 async function removeImage(path: string): Promise<void> {
   await rm(path, { force: true });
 }

@@ -26,10 +26,10 @@ For every drill:
 
 ```text
 Orders terminal transition
-  -> Orders transaction commits Order + outbox row
+  -> Orders transaction commits Order + event publication ledger row (outbox pattern)
   -> Orders worker appends stable envelope to Redis Stream
   -> Tickets consumer group receives or claims the entry
-  -> Tickets transaction applies guarded state change + inbox row
+  -> Tickets transaction applies guarded state change + processed-event ledger row (inbox pattern)
   -> Tickets acknowledges the Redis entry
 ```
 
@@ -38,12 +38,12 @@ Orders terminal transition
 | Pattern | Status | Refresh source |
 |---|---|---|
 | Durable background recovery | BUILT | [`startWorkers`, `scan`, and the durable scans](../../orders/src/workers.ts) |
-| Order transition and outbox atomicity | BUILT | [`enqueueTerminal`](../../orders/src/orders/order-repo.ts) |
-| Stable outbox message and retry state | BUILT | [`outbox-repo.ts`](../../orders/src/messaging/outbox-repo.ts) and [`003_create_outbox_messages.sql`](../../orders/migrations/003_create_outbox_messages.sql) |
+| Order transition and event publication ledger atomicity | BUILT | [`enqueueTerminal`](../../orders/src/orders/order-repo.ts) |
+| Stable event publication ledger message and retry state | BUILT | [`OrderEventPublication`](../../orders/src/messaging/order-event-publication.ts), [`order-event-publication-repo.ts`](../../orders/src/messaging/order-event-publication-repo.ts), and [`010_rename_outbox_messages.sql`](../../orders/migrations/010_rename_outbox_messages.sql) |
 | Redis Streams consumer group | BUILT | [`startOrderEventsConsumer`](../../tickets/src/orders/order-events-consumer.ts) |
 | Pending-entry recovery | BUILT | [`recoverPending`](../../tickets/src/orders/order-events-consumer.ts) |
-| Ticket transition and inbox atomicity | BUILT | [`consumeOrderEvent`](../../tickets/src/tickets/ticket-repo.ts) |
-| Stable duplicate identity | BUILT | `(consumer, message_id)` primary key in [`002_rebuild_ticket_locks_and_inbox.sql`](../../tickets/migrations/002_rebuild_ticket_locks_and_inbox.sql) |
+| Ticket transition and processed-event ledger atomicity | BUILT | [`applyOrderEventOnce`](../../tickets/src/tickets/ticket-repo.ts) |
+| Stable duplicate identity | BUILT | Historical [`002_rebuild_ticket_locks_and_inbox.sql`](../../tickets/migrations/002_rebuild_ticket_locks_and_inbox.sql) defines `(consumer, message_id)` as the processed-event ledger primary key; forward [`003_rename_inbox_messages.sql`](../../tickets/migrations/003_rename_inbox_messages.sql) preserves it while renaming the table and indexes |
 | Stale reservation protection | BUILT | `locked_by_order_id` checks in [`convergenceOutcome`](../../tickets/src/tickets/ticket-repo.ts) |
 | Poison-message quarantine | PARTIAL | `parseEvent` and `orders.events.dead-letter` in [`order-events-consumer.ts`](../../tickets/src/orders/order-events-consumer.ts) |
 | Redis restart durability | BUILT for local Kubernetes | AOF and PVC in [`infra/k8s/redis/deployment.yaml`](../../infra/k8s/redis/deployment.yaml) |
@@ -68,7 +68,7 @@ Run this matrix against each durable operation until the questions become automa
 | Process or pod restart | Which database, stream, pending list, or volume preserves unfinished work? |
 | Security propagation delay | How long can a revoked or banned identity remain accepted? |
 
-## Exercise 1: Crash after publish, before outbox progress
+## Exercise 1: Crash after publication, before ledger progress
 
 **Pattern status:** BUILT  
 **Exercise status:** DRILL PENDING
@@ -79,19 +79,19 @@ A committed terminal Order fact is eventually published. Republishing the same f
 
 ### Supporting patterns already built
 
-- [`enqueueTerminal`](../../orders/src/orders/order-repo.ts) changes the Order state and inserts the outbox row inside one database transaction.
-- The outbox row owns a stable UUID and stores aggregate identity, aggregate version, event type, event version, and payload.
-- [`publishMessage`](../../orders/src/workers.ts) performs `XADD` before calling `markOutboxMessagePublished`.
+- The terminal Order transition calls [`enqueueTerminal`](../../orders/src/orders/order-repo.ts), which inserts the event publication ledger row inside the same database transaction.
+- The event publication ledger row owns a stable UUID and stores aggregate identity, aggregate version, event type, event version, and payload.
+- [`publishOrderEventPublication`](../../orders/src/workers.ts) performs `XADD` before calling [`markOrderEventPublished`](../../orders/src/messaging/order-event-publication-repo.ts).
 - If the process dies in that gap, `published_at` remains null. The next scan republishes the same envelope with the same `messageId`.
-- [`markOutboxMessagePublished`](../../orders/src/messaging/outbox-repo.ts) conditionally marks only an unpublished row.
+- [`markOrderEventPublished`](../../orders/src/messaging/order-event-publication-repo.ts) conditionally marks only an unpublished row.
 
 ### Expected observation
 
-Redis may contain two entries with different Redis entry IDs but the same business `messageId`. Tickets applies the business transition once because the inbox uses the stable `messageId`.
+Redis may contain two entries with different Redis entry IDs but the same business `messageId`. Tickets applies the business transition once because the processed-event ledger uses the stable `messageId`.
 
 ### Remaining drill
 
-Add a temporary, controlled crash point after `XADD` and before `markOutboxMessagePublished`, run one terminal Order transition, restart Orders, and record the two Redis entries plus the single Tickets inbox outcome. Remove the crash point after the drill.
+Add a temporary, controlled crash point after `XADD` and before `markOrderEventPublished`, run one terminal Order transition, restart Orders, and record the two Redis entries plus the single Tickets processed-event ledger outcome. Remove the crash point after the drill.
 
 ## Exercise 2: Crash after consumer commit, before acknowledgement
 
@@ -104,20 +104,20 @@ Once Tickets commits a business effect, redelivery must not apply the effect aga
 
 ### Supporting patterns already built
 
-- [`consumeOrderEvent`](../../tickets/src/tickets/ticket-repo.ts) begins one write transaction.
-- It checks `(consumer, message_id)`, applies the guarded Ticket transition, and inserts the inbox row before committing.
-- [`processEntry`](../../tickets/src/orders/order-events-consumer.ts) calls `consumeOrderEvent` before `XACK`.
+- [`applyOrderEventOnce`](../../tickets/src/tickets/ticket-repo.ts) begins one write transaction.
+- It checks `(consumer, message_id)`, applies the guarded Ticket transition, and inserts the processed-event ledger row before committing.
+- [`processEntry`](../../tickets/src/orders/order-events-consumer.ts) calls `applyOrderEventOnce` before `XACK`.
 - A crash after the database commit leaves the Redis entry pending.
 - [`recoverPending`](../../tickets/src/orders/order-events-consumer.ts) uses `XAUTOCLAIM` so this or another consumer instance can recover abandoned pending work.
-- Redelivery finds the inbox marker and returns `duplicate: true` without another Ticket mutation.
+- Redelivery finds the processed-event ledger marker and returns `duplicate: true` without another Ticket mutation.
 
 ### Expected observation
 
-The Ticket state and inbox row are committed before the crash. After restart and pending recovery, the entry is acknowledged without another state change.
+The Ticket state and processed-event ledger row are committed before the crash. After restart and pending recovery, the entry is acknowledged without another state change.
 
 ### Remaining drill
 
-Add a temporary crash point after `consumeOrderEvent` and before `XACK`. Restart Tickets and inspect the pending entry, the existing inbox row, the unchanged Ticket state, and the final acknowledgement.
+Add a temporary crash point after `applyOrderEventOnce` and before `XACK`. Restart Tickets and inspect the pending entry, the existing processed-event ledger row, the unchanged Ticket state, and the final acknowledgement.
 
 ## Exercise 3: Deliver the same event five times
 
@@ -130,10 +130,10 @@ Five deliveries of one stable `messageId` produce at most one Ticket transition.
 
 ### Supporting patterns already built
 
-- `inbox_messages` has `PRIMARY KEY (consumer, message_id)` in [`002_rebuild_ticket_locks_and_inbox.sql`](../../tickets/migrations/002_rebuild_ticket_locks_and_inbox.sql).
-- [`consumeOrderEvent`](../../tickets/src/tickets/ticket-repo.ts) checks the stable inbox identity inside the same write transaction used for the Ticket transition.
+- Historical migration [`002_rebuild_ticket_locks_and_inbox.sql`](../../tickets/migrations/002_rebuild_ticket_locks_and_inbox.sql) defines the processed-event ledger `PRIMARY KEY (consumer, message_id)`; forward migration [`003_rename_inbox_messages.sql`](../../tickets/migrations/003_rename_inbox_messages.sql) preserves it while renaming the table and indexes.
+- [`applyOrderEventOnce`](../../tickets/src/tickets/ticket-repo.ts) checks the stable processed-event ledger identity inside the same write transaction used for the Ticket transition.
 - The consumer identity is the stable capability name `tickets-order-convergence`, not the process-specific Redis consumer name.
-- Duplicate delivery can therefore move between running instances and still find the first inbox marker.
+- Duplicate delivery can therefore move between running instances and still find the first processed-event ledger marker.
 
 ### Expected observation
 
@@ -141,7 +141,7 @@ The first delivery records one outcome. The following four deliveries return dup
 
 ### Remaining drill
 
-Append the exact same envelope five times with one `messageId`. Record the five stream entries, one inbox row, and one final Ticket transition.
+Append the exact same envelope five times with one `messageId`. Record the five stream entries, one processed-event ledger row, and one final Ticket transition.
 
 ## Exercise 4: Deliver an older event after a newer event
 
@@ -154,11 +154,11 @@ A stale terminal fact cannot change a Ticket controlled by another Order or reve
 
 ### Supporting patterns already built
 
-- [`convergenceOutcome`](../../tickets/src/tickets/ticket-repo.ts) requires the Ticket's current `locked_by_order_id` to equal the event's `aggregateId`.
+- [`applyOrderEventOnce`](../../tickets/src/tickets/ticket-repo.ts) requires the Ticket's current `locked_by_order_id` to equal the event's `aggregateId`.
 - A stale release cannot unlock a newer Order's reservation.
 - A stale completion cannot sell a Ticket reserved by another Order.
 - An already available Ticket remains available, and a sold Ticket is not released.
-- `aggregateVersion` is stored in the inbox for diagnosis.
+- `aggregateVersion` is stored in the processed-event ledger for diagnosis.
 
 ### Deliberate limitation
 
@@ -168,7 +168,7 @@ The code records diagnostic outcomes, but it does not yet emit a dedicated alert
 
 ### Remaining drill
 
-Reserve a Ticket for a newer Order, then deliver a terminal fact for the older Order. Confirm a `not_matching` inbox outcome and no Ticket mutation. Separately deliver a stale fact after `sold` and confirm the terminal Ticket state is unchanged.
+Reserve a Ticket for a newer Order, then deliver a terminal fact for the older Order. Confirm a `not_matching` processed-event ledger outcome and no Ticket mutation. Separately deliver a stale fact after `sold` and confirm the terminal Ticket state is unchanged.
 
 ## Exercise 5: Stop Redis while Orders changes state
 
@@ -181,19 +181,19 @@ Redis unavailability must not erase a committed Order fact or become authoritati
 
 ### Supporting patterns already built
 
-- [`enqueueTerminal`](../../orders/src/orders/order-repo.ts) commits the Order transition and outbox row without requiring Redis.
-- [`scanOutbox`](../../orders/src/workers.ts) reads durable unpublished rows.
-- Redis connection and `XADD` failures call [`recordOutboxMessageFailure`](../../orders/src/messaging/outbox-repo.ts).
+- [`enqueueTerminal`](../../orders/src/orders/order-repo.ts) commits the Order transition and event publication ledger row without requiring Redis.
+- [`scanOrderEventPublications`](../../orders/src/workers.ts) reads durable unpublished rows.
+- Redis connection and `XADD` failures call [`recordOrderEventPublicationFailure`](../../orders/src/messaging/order-event-publication-repo.ts).
 - Failure state includes attempt count, next-attempt time, and the last error.
 - Later worker scans retry rows whose `published_at` remains null.
 
 ### Expected observation
 
-Orders reaches its authoritative terminal state and retains an unpublished outbox row while Redis is unavailable. When Redis returns, the same durable row is published and marked complete.
+Orders reaches its authoritative terminal state and retains an unpublished event publication ledger row while Redis is unavailable. When Redis returns, the same durable row is published and marked complete.
 
 ### Remaining drill
 
-Stop Redis, complete or expire an Order, inspect the terminal Order and unpublished outbox row, restart Redis, and observe eventual publication and Tickets convergence.
+Stop Redis, complete or expire an Order, inspect the terminal Order and unpublished event publication ledger row, restart Redis, and observe eventual publication and Tickets convergence.
 
 ## Exercise 6: Restart services with pending Redis messages
 
@@ -202,12 +202,15 @@ Stop Redis, complete or expire an Order, inspect the terminal Order and unpublis
 
 ### Invariant
 
-A process restart must not lose committed facts, unpublished outbox work, consumer pending entries, or committed inbox outcomes.
+A process restart must not lose committed facts, unpublished event publication ledger work, consumer pending entries, or committed processed-event ledger outcomes.
 
 ### Supporting patterns already built
 
-- Orders begins with `await scan()` in [`startWorkers`](../../orders/src/workers.ts), so due durable work is inspected before the recurring timer.
+- Orders begins with `await scan()` in [`startWorkers`](../../orders/src/workers.ts), which invokes [`scanOrderEventPublications`](../../orders/src/workers.ts), so due event publication ledger work is inspected before the recurring timer.
 - Tickets calls [`recoverPending`](../../tickets/src/orders/order-events-consumer.ts) before reading new entries and periodically while running.
+- [`processEntry`](../../tickets/src/orders/order-events-consumer.ts) calls [`applyOrderEventOnce`](../../tickets/src/tickets/ticket-repo.ts) before `XACK`.
+- [`applyOrderEventOnce`](../../tickets/src/tickets/ticket-repo.ts) commits the guarded Ticket change and processed-event ledger row atomically.
+- If a restart causes redelivery, `applyOrderEventOnce` sees the processed-event ledger marker, makes no second Ticket mutation, and `processEntry` then acknowledges the entry.
 - Redis uses append-only persistence and a persistent volume in [`infra/k8s/redis/deployment.yaml`](../../infra/k8s/redis/deployment.yaml).
 - Orders, Tickets, and Redis Kubernetes deployments mount persistent volumes for local durable state.
 
@@ -217,7 +220,7 @@ This protects ordinary process and pod restarts while their persistent volumes s
 
 ### Remaining drill
 
-Create unpublished outbox work and a pending consumer entry, restart Orders, Tickets, and Redis, then prove both the unpublished and pending paths recover without duplicating the business effect.
+Create unpublished event publication ledger work and a pending consumer entry, restart Orders, Tickets, and Redis, then prove both the unpublished and pending paths recover without duplicating the business effect.
 
 ## Exercise 7: Introduce an unsupported event version
 
@@ -241,7 +244,7 @@ There is no dead-letter inspection, alerting, classification, or replay procedur
 
 ### Remaining drill
 
-Publish a valid envelope shape with `eventVersion: 2`. Confirm no Ticket or inbox mutation, one dead-letter copy, acknowledgement of the original, and continued processing of the next valid version-1 event.
+Publish a valid envelope shape with `eventVersion: 2`. Confirm no Ticket or processed-event ledger mutation, one dead-letter copy, acknowledgement of the original, and continued processing of the next valid version-1 event.
 
 ## Exercise 8: Deliver a permanently invalid message
 
@@ -269,7 +272,7 @@ A poison entry must not mutate business state or block all later valid entries i
 
 ### Remaining drill
 
-Publish malformed JSON followed by a valid event. Confirm the malformed entry reaches the dead-letter stream, the valid event still converges, and no malformed metadata enters the Tickets business inbox.
+Publish malformed JSON followed by a valid event. Confirm the malformed entry reaches the dead-letter stream, the valid event still converges, and no malformed metadata enters the Tickets processed-event ledger.
 
 ## Security exercise: banning users and revoking tokens
 
@@ -298,7 +301,7 @@ Identity owns credentials, refresh-token state, access-token creation, and the f
 - A durable banned or disabled user field
 - An administrative ban command and authorization policy
 - Revocation of every active refresh-token family for one user
-- A committed `user.banned` or equivalent fact and Identity outbox
+- A committed `user.banned` or equivalent fact and Identity event publication ledger
 - A local banned-user or revoked-token projection in Orders and Tickets
 - Synchronous token introspection
 - Immediate invalidation of already-issued access JWTs
@@ -320,16 +323,16 @@ Implementation support is not proof of understanding. Complete the stage only af
 | Required explanation | Current implementation | Mastery evidence |
 |---|---|---|
 | What Redis Streams guarantees | Consumer group, pending entries, acknowledgement, claiming, and at-least-once handling are built. | TO DEMONSTRATE with Exercises 2, 3, and 6. |
-| What the outbox guarantees | Atomic Order/outbox commit, stable message identity, retry state, and publish progress are built. | TO DEMONSTRATE with Exercises 1 and 5. |
-| What the inbox guarantees | Atomic Ticket/inbox commit and stable duplicate identity are built. | TO DEMONSTRATE with Exercises 2 and 3. |
-| Why exactly-once business effect comes from idempotency | Stable message IDs, inbox uniqueness, guarded transitions, and acknowledgement-after-commit are built. | TO EXPLAIN after duplicate and crash drills. |
+| What the event publication ledger guarantees | Atomic Order/ledger commit, stable message identity, retry state, and publish progress are built. | TO DEMONSTRATE with Exercises 1 and 5. |
+| What the processed-event ledger guarantees | Atomic Ticket/ledger commit and stable duplicate identity are built. | TO DEMONSTRATE with Exercises 2 and 3. |
+| Why exactly-once business effect comes from idempotency | Stable message IDs, processed-event ledger uniqueness, guarded transitions, and acknowledgement-after-commit are built. | TO EXPLAIN after duplicate and crash drills. |
 | Every commit, publish, and acknowledgement crash boundary | The intended windows are documented and most recovery paths are implemented. | TO DEMONSTRATE with Exercises 1, 2, 5, and 6. |
 | Which security decisions tolerate eventual propagation | The current access-token and refresh-token boundaries are visible; ban propagation is not designed. | OPEN DESIGN DECISION before the ban/revocation event work. |
 
 ## Claims to avoid
 
 - Redis Streams does not make the business effect exactly once.
-- An outbox does not prove that any consumer processed the event.
+- An event publication ledger does not prove that any consumer processed the event.
 - A broker acknowledgement does not prove business success unless it occurs after the authoritative local commit.
 - A queue or stream does not authorize a Ticket or identity transition.
 - `aggregateVersion` is diagnostic in the current Tickets consumer; arrival order and version are not its business authorization rule.
@@ -339,14 +342,15 @@ Implementation support is not proof of understanding. Complete the stage only af
 ## Memory-refresh reading order
 
 1. [`docs/system_design/events.md`](../system_design/events.md): topology, delivery guarantee, crash windows, duplicate/late behavior, and poison input.
-2. [`enqueueTerminal`](../../orders/src/orders/order-repo.ts): atomic terminal Order transition and outbox insert.
+2. [`enqueueTerminal`](../../orders/src/orders/order-repo.ts): atomic terminal Order transition and event publication ledger insert.
 3. [`orders/src/workers.ts`](../../orders/src/workers.ts): durable scans, Redis publication, and retry scheduling.
-4. [`orders/src/messaging/outbox-repo.ts`](../../orders/src/messaging/outbox-repo.ts): unpublished selection, publish progress, and failure backoff.
-5. [`tickets/src/orders/order-events-consumer.ts`](../../tickets/src/orders/order-events-consumer.ts): consumer group, pending recovery, poison handling, and acknowledgement order.
-6. [`consumeOrderEvent`](../../tickets/src/tickets/ticket-repo.ts): one Ticket/inbox transaction and duplicate handling.
-7. [`tickets/migrations/002_rebuild_ticket_locks_and_inbox.sql`](../../tickets/migrations/002_rebuild_ticket_locks_and_inbox.sql): Ticket lock invariants and inbox constraints.
-8. [`auth/src/tokens/refresh-token-repo.ts`](../../auth/src/tokens/refresh-token-repo.ts): refresh rotation, replay detection, and family revocation.
-9. [`common/src/index.ts`](../../common/src/index.ts): local JWT validation and the current 15-minute access-token window.
+4. [`orders/src/messaging/order-event-publication.ts`](../../orders/src/messaging/order-event-publication.ts): `OrderEventPublication` contract.
+5. [`orders/src/messaging/order-event-publication-repo.ts`](../../orders/src/messaging/order-event-publication-repo.ts): unpublished selection, publication progress, and failure backoff.
+6. [`tickets/src/orders/order-events-consumer.ts`](../../tickets/src/orders/order-events-consumer.ts): consumer group, pending recovery, poison handling, and acknowledgement order.
+7. [`applyOrderEventOnce`](../../tickets/src/tickets/ticket-repo.ts): one Ticket/processed-event ledger transaction and duplicate handling.
+8. Historical [`tickets/migrations/002_rebuild_ticket_locks_and_inbox.sql`](../../tickets/migrations/002_rebuild_ticket_locks_and_inbox.sql) defines the Ticket lock and processed-event schema/primary key; forward [`tickets/migrations/003_rename_inbox_messages.sql`](../../tickets/migrations/003_rename_inbox_messages.sql) preserves rows while renaming the table and indexes.
+9. [`auth/src/tokens/refresh-token-repo.ts`](../../auth/src/tokens/refresh-token-repo.ts): refresh rotation, replay detection, and family revocation.
+10. [`common/src/index.ts`](../../common/src/index.ts): local JWT validation and the current 15-minute access-token window.
 
 ## Completion record
 

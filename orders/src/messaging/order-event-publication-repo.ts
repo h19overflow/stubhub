@@ -1,13 +1,13 @@
 import { database } from "../database.js";
 import { retryDelayMs } from "../retry-delay.js";
-import { toOutboxMessage } from "./outbox-message.js";
+import { toOrderEventPublication } from "./order-event-publication.js";
 import type {
-  EnqueueOutboxMessageInput,
-  OutboxMessage,
-  OutboxMessageRow,
-} from "./outbox-message.js";
+  EnqueueOrderEventPublicationInput,
+  OrderEventPublication,
+  OrderEventPublicationRow,
+} from "./order-event-publication.js";
 
-const outboxColumns = `
+const orderEventPublicationColumns = `
   id,
   aggregate_type,
   aggregate_id,
@@ -30,12 +30,16 @@ const outboxColumns = `
  * the fact. The inserted row starts unpublished and immediately due, so the
  * publisher can retry it without losing a committed event.
  */
-function enqueueOutboxMessage(input: EnqueueOutboxMessageInput): OutboxMessage {
+function enqueueOrderEventPublication(
+  input: EnqueueOrderEventPublicationInput,
+): OrderEventPublication {
   const now = Date.now();
   const payload = JSON.stringify(input.payload);
-  if (payload === undefined) throw new TypeError("Outbox payload must be JSON serializable");
+  if (payload === undefined) {
+    throw new TypeError("Order event publication payload must be JSON serializable");
+  }
   database.prepare(`
-    INSERT INTO outbox_messages (
+    INSERT INTO order_event_publications (
       id,
       aggregate_type,
       aggregate_id,
@@ -77,32 +81,37 @@ function enqueueOutboxMessage(input: EnqueueOutboxMessageInput): OutboxMessage {
  * Only rows still lacking published_at are selected, so a publisher restart can
  * reread durable work; the positive limit bounds one scan.
  */
-function listUnpublishedOutboxMessages(now: number, limit: number): OutboxMessage[] {
+function listDueOrderEventPublications(
+  now: number,
+  limit: number,
+): OrderEventPublication[] {
   if (!Number.isSafeInteger(limit) || limit <= 0) {
-    throw new RangeError("Outbox batch limit must be a positive safe integer");
+    throw new RangeError(
+      "Order event publication batch limit must be a positive safe integer",
+    );
   }
 
   const rows = database.prepare(`
-    SELECT ${outboxColumns}
-    FROM outbox_messages
+    SELECT ${orderEventPublicationColumns}
+    FROM order_event_publications
     WHERE published_at IS NULL AND next_attempt_at <= ?
     ORDER BY next_attempt_at, created_at, id
     LIMIT ?
-  `).all(now, limit) as unknown as OutboxMessageRow[];
-  return rows.map(toOutboxMessage);
+  `).all(now, limit) as unknown as OrderEventPublicationRow[];
+  return rows.map(toOrderEventPublication);
 }
 
 /**
- * Marks an outbox row published after its Redis publication succeeds.
+ * Marks a publication row published after its Redis publication succeeds.
  *
  * The unpublished condition is compare-and-set protection against a duplicate
  * publisher. Returns true only when this call changed one row, and false when
  * the row is missing or already published.
  */
-function markOutboxMessagePublished(id: string): boolean {
+function markOrderEventPublished(id: string): boolean {
   const now = Date.now();
   const result = database.prepare(`
-    UPDATE outbox_messages
+    UPDATE order_event_publications
     SET published_at = ?, attempt_count = attempt_count + 1, updated_at = ?, last_error = NULL
     WHERE id = ? AND published_at IS NULL
   `).run(now, now, id);
@@ -116,29 +125,29 @@ function markOutboxMessagePublished(id: string): boolean {
  * unpublished state. Returns true only when retry metadata was recorded; false
  * means another publisher changed or published the row first.
  */
-function recordOutboxMessageFailure(
-  message: OutboxMessage,
+function recordOrderEventPublicationFailure(
+  publication: OrderEventPublication,
   error: string,
   now: number,
 ): boolean {
   const result = database.prepare(`
-    UPDATE outbox_messages
+    UPDATE order_event_publications
     SET attempt_count = attempt_count + 1, next_attempt_at = ?,
         last_error = ?, updated_at = ?
     WHERE id = ? AND published_at IS NULL AND attempt_count = ?
   `).run(
-    now + retryDelayMs(message.attemptCount),
+    now + retryDelayMs(publication.attemptCount),
     error.slice(0, 500),
     now,
-    message.id,
-    message.attemptCount,
+    publication.id,
+    publication.attemptCount,
   );
   return Number(result.changes) === 1;
 }
 
 export {
-  enqueueOutboxMessage,
-  listUnpublishedOutboxMessages,
-  markOutboxMessagePublished,
-  recordOutboxMessageFailure,
+  enqueueOrderEventPublication,
+  listDueOrderEventPublications,
+  markOrderEventPublished,
+  recordOrderEventPublicationFailure,
 };

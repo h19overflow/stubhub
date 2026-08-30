@@ -15,15 +15,36 @@ type RefreshTokenRow = {
 };
 type RefreshResult = { refreshToken: string; user: PublicUser };
 
+/**
+ * SHA-256 hashes an opaque refresh token for storage.
+ *
+ * Flow: internal helper; DB stores only hash, never raw token, so a DB leak
+ * does not yield usable refresh tokens. Used by all repo functions.
+ */
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+/**
+ * Generates a fresh opaque refresh token and its hash.
+ *
+ * Flow: createRefreshToken and rotateRefreshToken call this to get
+ * {raw, hash}. Raw is 32 random bytes base64url; hash is SHA-256. Raw is
+ * returned to cookie, hash goes to SQLite.
+ */
 function newToken(): { raw: string; hash: string } {
   const raw = randomBytes(32).toString("base64url");
   return { raw, hash: hashToken(raw) };
 }
 
+/**
+ * Creates the first refresh token in a family for a user.
+ *
+ * Flow: createAuthentication -> calls this. Prunes expired rows, INSERTs a
+ * new row with new family_id (randomUUID), user_id, expires_at (now+TTL).
+ * Family groups all rotations of the same login; revokeFamily invalidates
+ * the whole family on replay.
+ */
 function createRefreshToken(userId: string): string {
   const token = newToken();
   const now = Date.now();
@@ -36,6 +57,13 @@ function createRefreshToken(userId: string): string {
   return token.raw;
 }
 
+/**
+ * Revokes every token in a refresh family (sets revoked_at if null).
+ *
+ * Flow: called on detected replay (reuse of rotated token) and on signout
+ * (revokeRefreshToken). Uses COALESCE so first revocation timestamp wins.
+ * Makes all future rotations for that family fail.
+ */
 function revokeFamily(familyId: string, now: number): void {
   database.prepare(`
     UPDATE refresh_tokens
@@ -44,6 +72,16 @@ function revokeFamily(familyId: string, now: number): void {
   `).run(now, familyId);
 }
 
+/**
+ * Atomically rotates a refresh token (single-use) and detects replay.
+ *
+ * Flow: refreshAuthentication -> calls this in BEGIN IMMEDIATE. Steps: SELECT
+ * token row + user -> if missing return null -> if already revoked with
+ * replaced_by_token_hash, it is a replay => revokeFamily and return null ->
+ * if revoked or expired return null -> UPDATE old row revoked_at/replaced_by
+ * -> INSERT replacement row in same family with new hash/TTL -> COMMIT ->
+ * return {refreshToken, user}. Rollback on contention. Guarantees one-time use.
+ */
 function rotateRefreshToken(rawToken: string): RefreshResult | null {
   const tokenHash = hashToken(rawToken);
   const replacement = newToken();
@@ -118,6 +156,13 @@ function rotateRefreshToken(rawToken: string): RefreshResult | null {
   }
 }
 
+/**
+ * Revokes the family containing the given raw refresh token (signout).
+ *
+ * Flow: POST /signout -> calls this. Looks up family_id by hash then
+ * revokeFamily. No-op if token not found (already expired/cleared). Does not
+ * throw for unknown tokens.
+ */
 function revokeRefreshToken(rawToken: string): void {
   const now = Date.now();
   const row = database.prepare(

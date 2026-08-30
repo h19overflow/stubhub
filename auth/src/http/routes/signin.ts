@@ -10,6 +10,14 @@ import { credentialsSchema, emailCodeSchema } from "../schemas.js";
 
 const router = express.Router();
 
+/**
+ * POST /signin — password check + either immediate auth or 2nd-factor code.
+ *
+ * Flow: credentialsSchema → authenticateUser (invalid→401, locked→429+Retry-After,
+ * unverified→403) → if emailCodesDisabled createAuthentication+cookie 200; else
+ * issueChallenge(signin) → sendCode → 202 {codeRequired:true} (1/min cooldown).
+ * 503 if SMTP fails after successful auth. Rate-limited.
+ */
 router.post("/signin", authRateLimit, async (request, response) => {
   const credentials = credentialsSchema.safeParse(request.body);
   if (!credentials.success) {
@@ -50,6 +58,13 @@ router.post("/signin", authRateLimit, async (request, response) => {
   response.status(202).json({ codeRequired: true });
 });
 
+/**
+ * POST /signin/code — verifies signin OTP and issues auth session.
+ *
+ * Flow: emailCodeSchema → consumeChallenge(signin) → 401 on bad/expired →
+ * createAuthentication → Set-Cookie refreshToken → 200 auth body. Completes
+ * the two-step signin. Rate-limited.
+ */
 router.post("/signin/code", authRateLimit, async (request, response) => {
   const input = emailCodeSchema.safeParse(request.body);
   if (!input.success) {

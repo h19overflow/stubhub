@@ -1,8 +1,14 @@
 # Orders messaging
 
-Orders atomically inserts `order.completed` or `order.expired` into `outbox_messages` with the terminal Order transition. The durable publisher scans at startup and on an interval, appends the exact event envelope to Redis Stream `orders.events` in field `event`, then records publication progress. A crash after append but before progress is recorded may publish the same stable `messageId` again.
+Orders atomically inserts `order.completed` or `order.expired` into
+`order_event_publications` with the terminal Order transition. The durable event
+publication ledger (outbox pattern) scans at startup and on an interval, appends
+the exact event envelope to Redis Stream `orders.events` in field `event`, then
+records publication progress. A crash after append but before progress is
+recorded may publish the same stable `messageId` again.
 
-- `outbox-message.ts` defines the durable outgoing message shape.
-- `outbox-repo.ts` reads unpublished messages and records publish attempts.
+- `order-event-publication.ts` defines the durable event publication shape.
+- `order-event-publication-repo.ts` reads due publications and records attempts.
 
-Redis is transport only. Orders state and the outbox commit are authoritative.
+Redis is transport only. Orders state and the event publication ledger commit are
+authoritative.

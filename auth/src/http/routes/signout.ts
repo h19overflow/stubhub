@@ -7,6 +7,12 @@ import { revokeRefreshToken } from "../../tokens/refresh-token-repo.js";
 
 const router = express.Router();
 
+/**
+ * POST /signout — revokes the refresh family and clears the cookie.
+ *
+ * Flow: readRefreshToken → revokeRefreshToken (revokeFamily) → always clear
+ * cookie → 204. Idempotent; no error if missing.
+ */
 router.post("/signout", (request, response) => {
   const refreshToken = readRefreshToken(request.headers.cookie);
   if (refreshToken) revokeRefreshToken(refreshToken);

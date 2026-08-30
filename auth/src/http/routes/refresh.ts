@@ -8,6 +8,14 @@ import {
 
 const router = express.Router();
 
+/**
+ * POST /refresh — rotates the refresh token and returns a new access token.
+ *
+ * Flow: readRefreshToken from Cookie → refreshAuthentication (BEGIN IMMEDIATE
+ * rotation, single-use, replay revokes family) → on miss clear cookie 401;
+ * on success Set-Cookie new refreshToken + 200 {user,accessToken}. No auth
+ * header needed; relies on HttpOnly cookie rotation.
+ */
 router.post("/refresh", async (request, response) => {
   const rawRefreshToken = readRefreshToken(request.headers.cookie);
   const refreshed = rawRefreshToken
