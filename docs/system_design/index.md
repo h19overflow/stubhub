@@ -24,11 +24,13 @@ transport, persistence, or implementation.
 | Payment | `journies/payment.md` | Not started |
 | Expiration | `journies/expiration.md` | Not started |
 | Order history | `journies/order-history.md` | Not started |
+| User reporting and moderation | `journies/user-reporting-and-moderation.md` | First vertical slice implemented |
 
 ## Current stopping point
 
-Complete the journey descriptions before introducing invariants, state machines,
-commands, events, or technical contracts.
+Most journeys still need their design stages completed. User reporting and
+moderation is the current exception: its first buyer-to-seller reporting slice
+has accepted API, communication, persistence, and UI contracts.
 
 ## Roadmap after the journeys
 
