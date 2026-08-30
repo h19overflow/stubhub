@@ -7,7 +7,8 @@
     "auth",
     "tickets",
     "event-bus",
-    "orders"
+    "orders",
+    "moderation"
   ],
   "scripts": {
     "dev": "skaffold dev",
@@ -19,6 +20,7 @@
     "dev:identity": "npm run dev --workspace @stubhub/identity",
     "dev:tickets": "npm run dev --workspace @stubhub/tickets",
     "dev:orders": "npm run dev --workspace @stubhub/orders",
+    "dev:moderation": "npm run dev --workspace @stubhub/moderation",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "check:commit": "npm run check:commit --workspace @stubhub/identity",

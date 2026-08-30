@@ -1,0 +1,28 @@
+{
+  "name": "@stubhub/moderation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon --watch src --watch migrations --watch ../common/src --ext ts,sql --exec \"npm run build && node --env-file-if-exists=.env dist/index.js\"",
+    "build:common": "npm --prefix ../common run build",
+    "build": "npm run build:common && tsc -p tsconfig.json",
+    "migrate": "npm run build && node --env-file-if-exists=.env dist/database.js",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "typecheck": "npm run build:common && tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@stubhub/common": "0.1.0",
+    "express": "^5.2.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.2.0",
+    "nodemon": "^3.1.14",
+    "typescript": "^7.0.2"
+  }
+}
