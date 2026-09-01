@@ -38,7 +38,10 @@ test("GET /current-user rejects a missing bearer token", async () => {
 
   assert.equal(response.status, 401);
   assert.equal(response.headers.get("www-authenticate"), "Bearer");
-  assert.deepEqual(await response.json(), { error: "Authentication required" });
+  assert.deepEqual(await response.json(), {
+    error: "Authentication required",
+    code: "authentication_required",
+  });
 });
 
 test("GET /current-user rejects a malformed bearer header", async () => {
@@ -46,7 +49,10 @@ test("GET /current-user rejects a malformed bearer header", async () => {
 
   assert.equal(response.status, 401);
   assert.equal(response.headers.get("www-authenticate"), "Bearer");
-  assert.deepEqual(await response.json(), { error: "Authentication required" });
+  assert.deepEqual(await response.json(), {
+    error: "Authentication required",
+    code: "authentication_required",
+  });
 });
 
 test("GET /current-user rejects a wrong-signature token", async () => {
@@ -66,7 +72,10 @@ test("GET /current-user rejects a wrong-signature token", async () => {
 
   assert.equal(response.status, 401);
   assert.equal(response.headers.get("www-authenticate"), "Bearer");
-  assert.deepEqual(await response.json(), { error: "Authentication required" });
+  assert.deepEqual(await response.json(), {
+    error: "Authentication required",
+    code: "authentication_required",
+  });
 });
 
 test("GET /current-user returns exactly the public user for a valid token", async () => {
