@@ -1,248 +1,237 @@
-# 6. Message Brokers, Queues, and Event Buses
+# 6. Message Brokers and Event Buses — NATS Ideas in Redis Streams
 
 ## Goal
 
-Understand the parts of asynchronous messaging without tying the design to one
-product.
+Learn the ideas taught in course lectures **314–349** without mentally rewriting
+NATS Streaming code into Redis code while you study.
 
-## The core idea
+The course uses NATS Streaming. This repository uses Redis Streams. The products
+are different; the reliability questions are the same.
 
-A message broker is a durable intermediary that accepts messages from producers,
-stores or routes them, and makes them available to consumers.
+## Start here
+
+Use this lesson beside these course blocks:
+
+| Course lectures | Course topic | Use in this repository |
+|---|---|---|
+| 314–324 | Reusable listeners and typed events | Concrete Redis consumer plus a validated event schema |
+| 325–329 | Publishers and common event definitions | Durable Orders publication rows plus service-owned contracts |
+| 330–340 | NATS client setup and startup | Redis clients, consumer groups, lifecycle, and graceful shutdown |
+| 341–349 | Publishing failures, mocks, and environment | Retryable publication, real integration boundaries, and `REDIS_URL` |
+
+For the exact title-by-title classification, keep
+[`async-systems/lecture-map-314-450.md`](async-systems/lecture-map-314-450.md)
+open. `KEEP` means the concept transfers directly. `TRANSLATE` means use the
+Redis/SQLite implementation named there. `SKIP` means the lesson depends on a
+course-specific tool or abstraction that this codebase intentionally does not
+need.
+
+## Foundation: what problem forces a broker to exist?
+
+Two services own different databases:
+
+- Orders owns whether an Order is complete or expired.
+- Tickets owns whether a Ticket is available, reserved, or sold.
+
+When Orders commits `complete`, it cannot update the Tickets database directly.
+Tickets must learn the committed fact and make its own guarded state change.
+
+An HTTP call alone is not enough for this later convergence. Tickets may be down
+after Orders has committed. Orders therefore needs durable work that survives
+process and dependency failure. The broker transports that work when both sides
+can participate.
+
+## The course-to-repository translation
+
+This is the complete mental replacement to use while watching NATS lectures:
+
+| Course term | Redis Streams equivalent here | Important difference |
+|---|---|---|
+| NATS subject | Redis stream key, currently `orders.events` | A stream is a retained log, not merely a routing name |
+| Publisher class | Orders publication worker | It relays durable database rows instead of publishing inside a route |
+| Listener class | `startOrderEventsConsumer` and `processEntry` | Concrete functions are clearer because there is one real consumer flow |
+| Queue group | Redis consumer group `tickets-order-convergence` | Instances share work for one logical Tickets subscription |
+| NATS message | Redis stream entry | The Redis entry ID is transport identity, not business identity |
+| `msg.ack()` | `XACK` | ACK removes the entry from this group’s pending list only |
+| Redelivery | Pending-entry recovery with `XAUTOCLAIM` | The consumer must make duplicates safe |
+| Common event interface | Runtime schema plus TypeScript type | Runtime validation is still required because Redis carries bytes |
+| NATS environment variables | `REDIS_URL` and consumer timing variables | Product-specific connection and recovery settings differ |
+
+Do not translate NATS syntax line by line. Translate each lecture into one of
+four questions:
+
+1. What durable fact exists?
+2. How does the producer publish it?
+3. How does the consumer safely apply it?
+4. What survives a crash between steps?
+
+## One message, three identities
+
+The course’s listener abstractions can make “the message ID” sound singular.
+This repository deliberately separates three identities:
+
+| Identity | Example | Purpose |
+|---|---|---|
+| Business entity | `orderId` | Says which Order the fact describes |
+| Application message | `messageId` | Identifies one logical publication across retries |
+| Broker entry | Redis-generated stream ID | Identifies one physical append inside Redis |
+
+If Orders appends a fact, crashes, and appends it again, the two Redis entries
+have different stream IDs but retain the same `messageId`. Tickets deduplicates
+by the stable application identity, not the transport identity.
+
+## The actual path in this repository
+
+This visual shows the one relationship to remember: durable state exists on
+both sides of Redis, so Redis is transport rather than business authority.
 
 ```mermaid
 flowchart LR
-    P[Producer]
-    B[(Broker storage)]
-    G1[Consumer group A]
-    G2[Consumer group B]
-    C1[Consumer A1]
-    C2[Consumer A2]
-    C3[Consumer B1]
-    D[Dead-letter area]
+    O[(Orders DB<br/>business row + publication row)]
+    W[Orders publication worker]
+    R[(Redis Stream<br/>orders.events)]
+    C[Tickets consumer group]
+    T[(Tickets DB<br/>ticket state + processed receipt)]
 
-    P -->|Publish message| B
-    B --> G1
-    B --> G2
-    G1 --> C1
-    G1 --> C2
-    G2 --> C3
-    C1 -->|Acknowledge progress| B
-    C2 -->|Repeated failure| D
+    O -->|read unpublished fact| W
+    W -->|XADD stable messageId| R
+    R -->|XREADGROUP or XAUTOCLAIM| C
+    C -->|guarded transaction| T
+    C -->|XACK after commit| R
 ```
 
-## The nouns
+Trace it in code:
 
-| Part | Responsibility |
-|---|---|
-| Producer | Creates a message after a named trigger |
-| Message | Stable envelope carrying one command, fact, or job |
-| Broker | Stores, routes, and tracks delivery progress |
-| Queue, topic, or stream | Named location or log containing messages |
-| Consumer | Processes messages |
-| Consumer group | Shares one logical subscription across instances |
-| Acknowledgement | Records that processing reached its safe completion point |
-| Retry or pending area | Retains uncompleted delivery for another attempt |
-| Dead-letter area | Quarantines work that cannot be processed normally |
+1. `orders/src/messaging/order-event-publication-repo.ts` stores publication
+   work in the Orders database.
+2. `orders/src/workers.ts` reads due publication rows, calls `XADD`, and only
+   then marks publication progress.
+3. `tickets/src/orders/order-events-consumer.ts` reads new entries with
+   `XREADGROUP` and reclaims abandoned pending entries with `XAUTOCLAIM`.
+4. `tickets/src/tickets/schemas.ts` validates the decoded event at runtime.
+5. `tickets/src/tickets/ticket-repo.ts` applies the Ticket transition and records
+   the processed `messageId` in one transaction.
+6. The consumer calls `XACK` only after that transaction commits.
 
-## Queue, pub-sub, stream, and event bus
+## Replacing the reusable Listener class
 
-Product terminology overlaps, so reason from behavior:
+Lectures 314–323 build an abstract Listener to centralize subject, queue group,
+ACK behavior, and type validation. Keep the responsibilities; skip the class.
 
-| Shape | Normal intent |
-|---|---|
-| Work queue | One logical worker group performs each job |
-| Pub-sub topic | Several independent subscribers receive a publication |
-| Durable stream or log | Messages remain ordered in an append-only history for a retention period |
-| Event bus | An architectural role where services publish committed facts for independent consumers |
-
-Redis Streams, RabbitMQ, Kafka, and cloud brokers expose different combinations.
-Choose after the required delivery, ordering, retention, and recovery behavior is
-known.
-
-## A minimum message envelope
+The current concrete consumer makes the safety order visible:
 
 ```text
-messageId       stable identity for duplicate detection
-type            what happened or what work is requested
-version         contract version
-entityId        business entity this concerns
-entityVersion   position in that entity's history when needed
-occurredAt      when the owner committed the fact
-payload         smallest data required by the consumer
+read Redis entry
+  -> decode bytes
+  -> validate envelope
+  -> apply event once in Tickets transaction
+  -> ACK Redis entry
 ```
 
-Broker entry IDs are transport identities. A stable application `messageId` must
-survive republication.
+A base class would save little because this repository has one accepted business
+consumer path. Add an abstraction only after a second concrete consumer reveals
+real repeated behavior and the same failure semantics.
 
-## The eight broker questions
+### Runtime validation still matters
 
-Before choosing a product, answer:
+A TypeScript interface disappears at runtime. Redis can contain malformed JSON,
+an old schema, or a message written by another language. Therefore the Tickets
+consumer must validate the decoded value before touching business state.
 
-1. What exact message contract is stored?
-2. How long must it survive?
-3. Who receives it?
-4. When is it acknowledged?
-5. How is unfinished work retried or reclaimed?
-6. How are poison messages quarantined?
-7. Which entity requires ordering?
-8. What metric or query exposes stuck delivery?
+For the current contract, inspect `orderEventSchema` in
+`tickets/src/tickets/schemas.ts`. It accepts the supported terminal Order facts
+and rejects unknown shapes.
 
-## Delivery promises
-
-- **At-most-once:** a message may be lost, but is not intentionally redelivered.
-- **At-least-once:** the broker redelivers unfinished work, so duplicates are
-  expected.
-- **Exactly-once business effect:** requires application state and duplicate
-  identity to cooperate. A broker label alone cannot provide this across your
-  databases and side effects.
-
-## How the current StubHub setup uses acknowledgement
-
-The current path is:
+A poison message follows a different safe path:
 
 ```text
-Orders database -> Orders worker -> Redis Stream -> Tickets consumer -> Tickets database -> XACK
+invalid entry -> append evidence to orders.events.dead-letter -> XACK original
 ```
 
-There are two different success signals in that path:
+If dead-letter storage fails, the original is not acknowledged. Evidence must be
+preserved before Redis is told the entry is complete.
 
-| Signal | What it proves | What it does not prove |
+## Replacing the custom Publisher class
+
+Lectures 325–327 publish through a reusable NATS Publisher. The key lesson is not
+the class. It is that publication is asynchronous and must be awaited.
+
+This repository goes further: an HTTP request does not make a database commit
+and then hope an immediate broker call succeeds. The Orders transaction records
+the business transition and publication work together. A worker later publishes
+that durable row.
+
+The required ordering is:
+
+```text
+Orders transaction commits publication row
+worker XADD succeeds
+worker marks publication row published
+```
+
+If the worker crashes after `XADD` but before marking the row, it republishes the
+same logical `messageId`. That is expected at-least-once behavior.
+
+## Replacing the NATS singleton
+
+Lectures 333–340 introduce a NATS client singleton and lifecycle hooks. Keep the
+lifecycle lesson; skip the global singleton pattern.
+
+The current services create scoped Redis clients for their worker or consumer
+lifecycle. Shutdown must:
+
+1. stop accepting another loop iteration;
+2. let in-flight database or Redis work finish;
+3. close Redis connections; and
+4. close service resources.
+
+The point of graceful shutdown is not a clean terminal. It reduces abandoned
+in-flight work. Durable pending state still provides recovery if shutdown cannot
+finish cleanly.
+
+## Failure meanings
+
+| Failure | Durable evidence | What happens next |
 |---|---|---|
-| Orders sets `published_at` | Redis accepted the producer's `XADD` | Tickets processed the event |
-| Tickets sends `XACK` | The Tickets consumer group reached its safe completion point | Redis deleted the stream entry or another consumer group processed it |
+| Redis is down before publication | Unpublished Orders publication row | Orders worker retries later |
+| Orders crashes after `XADD` | Publication may still look unpublished | Same `messageId` may be appended again |
+| Tickets crashes before DB commit | Redis entry remains pending | A live consumer reclaims it |
+| Tickets crashes after DB commit, before `XACK` | Processed receipt exists and entry remains pending | Redelivery becomes a duplicate, then ACK |
+| Entry is malformed | Original remains pending until dead-letter copy succeeds | Consumer preserves evidence before ACK |
 
-### 1. Orders publishes, but does not ACK
+## Course-aligned practice
 
-`publishOrderEventPublication` in `orders/src/workers.ts` loads a durable
-publication from the Orders database and appends its envelope to
-`orders.events` with `XADD`. Only after Redis accepts that append does Orders
-call `markOrderEventPublished`.
+After lectures 314–340, answer these without using NATS terms:
 
-The publication ledger in
-`orders/src/messaging/order-event-publication-repo.ts` keeps rows with
-`published_at IS NULL` available for retry. Therefore, `published_at` means:
+1. What replaces the course Listener abstract class?
+2. What value replaces the course subject?
+3. What value replaces the queue group?
+4. Why is the Redis entry ID insufficient for duplicate detection?
+5. Why must runtime validation remain even when TypeScript compiles?
+6. Which database row exists when Redis is unavailable?
 
-> Orders successfully handed this durable publication to Redis.
-
-It is producer-side progress, not a consumer acknowledgement.
-
-If Orders crashes after `XADD` but before setting `published_at`, the next scan
-publishes the row again. The new Redis entry has a new transport ID, but the
-event keeps the same application `messageId`.
-
-### 2. Redis tracks delivery as pending
-
-`startOrderEventsConsumer` in
-`tickets/src/orders/order-events-consumer.ts` reads `orders.events` through the
-`tickets-order-convergence` consumer group.
-
-`XREADGROUP` with the `>` cursor asks for entries never delivered to this group.
-After Redis delivers an entry, that entry remains in the group's Pending Entries
-List until the group acknowledges it.
-
-### 3. Tickets commits before sending `XACK`
-
-For a valid event, `processEntry` preserves this order:
+Then trace one real event:
 
 ```text
-applyOrderEventOnce(event)
-XACK orders.events tickets-order-convergence <redis-entry-id>
-```
-
-`applyOrderEventOnce` in `tickets/src/tickets/ticket-repo.ts` performs one
-database transaction:
-
-1. check `processed_order_events` for the stable application `messageId`;
-2. apply the guarded Ticket transition when this is the first delivery;
-3. insert the processed-event receipt; and
-4. commit.
-
-Tickets sends `XACK` only after that transaction succeeds. Here acknowledgement
-means:
-
-> The Tickets service durably handled this Redis entry, so this consumer group
-> no longer needs to recover it.
-
-If parsing, database work, or Redis communication fails before `XACK`, the entry
-remains pending.
-
-### 4. Pending entries are reclaimed
-
-The Tickets consumer periodically calls `XAUTOCLAIM`. It takes entries that
-have remained pending longer than `TICKETS_EVENTS_CLAIM_IDLE_MS` and gives them
-to a live consumer instance for another processing attempt.
-
-This recovery produces at-least-once delivery: the same business message may be
-processed more than once, so duplicate handling is required.
-
-### 5. The processed-event ledger makes redelivery safe
-
-Consider a crash in this gap:
-
-```text
-Tickets database commit -> process crash -> XACK was never sent
-```
-
-Redis still sees the entry as pending and `XAUTOCLAIM` later delivers it again.
-On redelivery, `applyOrderEventOnce` finds the existing
-`processed_order_events` row by consumer name and `messageId`. It commits no
-second Ticket change, returns the duplicate result, and the Redis caller can
-then send `XACK`.
-
-Redis provides redelivery. The Tickets database provides idempotency. Both are
-needed for one business effect under at-least-once delivery.
-
-### 6. Poison messages are dead-lettered before ACK
-
-When an entry cannot be parsed or fails schema validation, `processEntry` first
-copies it to `orders.events.dead-letter` with `XADD` and only then acknowledges
-the original entry.
-
-If dead-letter storage fails, the original entry is not acknowledged and
-remains recoverable. A poison message reaches its safe completion point only
-after its evidence has been preserved for inspection.
-
-### 7. What `XACK` does and does not do
-
-For this setup, `XACK` removes the entry from the Pending Entries List for
-`tickets-order-convergence`.
-
-It does not:
-
-- delete the entry from the Redis Stream;
-- notify Orders that Tickets processed it;
-- acknowledge it for a different consumer group; or
-- create exactly-once business effects without the processed-event ledger.
-
-The ordering of the complete flow is:
-
-```mermaid
-sequenceDiagram
-    participant ODB as Orders DB
-    participant OW as Orders worker
-    participant R as Redis Stream
-    participant TC as Tickets consumer
-    participant TDB as Tickets DB
-
-    ODB->>OW: Return unpublished fact
-    OW->>R: XADD orders.events
-    R-->>OW: Entry appended
-    OW->>ODB: Set published_at
-    R->>TC: XREADGROUP delivery
-    Note over R,TC: Entry is pending
-    TC->>TDB: Apply change and record messageId
-    TDB-->>TC: Transaction committed
-    TC->>R: XACK
-    Note over R,TC: Pending delivery completed
+order.completed
+  -> Orders publication row
+  -> orders.events
+  -> tickets-order-convergence
+  -> applyOrderEventOnce
+  -> Ticket reserved to sold
 ```
 
 ## Checkpoint
 
-Explain why adding another Tickets consumer instance to the same consumer group
-should not make every instance apply every message.
+Explain this sentence in your own words:
+
+> Redis owns delivery progress; Orders owns Order truth; Tickets owns Ticket
+> truth; the stable `messageId` connects retries without transferring authority.
 
 ## Exit gate
 
-Continue only when you can draw producer, durable broker state, consumer group,
-acknowledgement, retry, and dead-letter handling without naming Redis or Kafka.
+Continue to
+[Lesson 7: How Durable Delivery Works](07-how-durable-delivery-works.md) only
+when you can watch a NATS publisher/listener lecture and immediately identify:
+producer durability, transport identity, consumer durability, ACK timing, and
+recovery ownership in the Redis implementation.

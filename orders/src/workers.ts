@@ -168,28 +168,28 @@ async function publishOrderEventPublication(
  * The database, not this process, owns the retry queue. After a restart this
  * scan reconnects Redis, republishes due rows, and persists connection or
  * publication failures for a later scan.
- */
+*/
 async function scanOrderEventPublications(): Promise<void> {
-  const now = Date.now();
-  const publications = listDueOrderEventPublications(now, 100);
-  if (publications.length === 0) return;
+const now = Date.now();
+const publications = listDueOrderEventPublications(now, 100);
+if (publications.length === 0) return;
 
-  if (!redis.isOpen) {
-    try {
-      await redis.connect();
-    } catch (error) {
-      const reason =
-        error instanceof Error ? error.message : "Redis connection failed";
-      for (const publication of publications) {
-        recordOrderEventPublicationFailure(publication, reason, now);
-      }
-      return;
+if (!redis.isOpen) {
+  try {
+    await redis.connect();
+  } catch (error) {
+    const reason =
+      error instanceof Error ? error.message : "Redis connection failed";
+    for (const publication of publications) {
+      recordOrderEventPublicationFailure(publication, reason, now);
     }
+    return;
   }
+}
 
-  for (const publication of publications) {
-    await publishOrderEventPublication(publication);
-  }
+for (const publication of publications) {
+  await publishOrderEventPublication(publication);
+}
 }
 
 /**

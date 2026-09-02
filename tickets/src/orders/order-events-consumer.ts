@@ -208,4 +208,5 @@ async function startOrderEventsConsumer(): Promise<() => Promise<void>> {
   };
 }
 
-export { startOrderEventsConsumer };
+
+  export { startOrderEventsConsumer };

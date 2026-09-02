@@ -1,69 +1,179 @@
-# 8. The Durable Service-Design Loop
+# 8. The Durable Design Loop — Rebuilding the Course Flow Correctly
 
 ## Goal
 
-Turn service design into a fixed sequence so routes, events, and diagrams do not
-arrive before the business rules.
+Use course lectures **350–450** as implementation evidence while learning a
+repeatable order for designing Orders, Tickets, events, locks, and expiration.
 
-## Work in four passes
+The course often introduces the next route, model, listener, or service because
+it is building a project chronologically. In your own design work, do not copy
+that chronology. Derive transport from business truth.
 
-Do one pass, review it, and stop. Do not complete all four in one rush.
+## Course bridge
+
+| Course block | Design question this lesson extracts |
+|---|---|
+| 350–377 Orders routes and models | Which entity changes, who owns it, and which rules constrain it? |
+| 378–393 Orders events and Tickets listeners | Which committed facts need later convergence? |
+| 394–415 concurrency and versions | What prevents races, duplicates, and stale delivery? |
+| 418–431 reservation and edit locking | Which synchronous decision must remain authoritative now? |
+| 432–450 expiration service and Bull | Who owns the deadline and what durable work survives restarts? |
+
+The repository translation is deliberate:
+
+- Mongoose models become SQLite tables, constraints, and transactions.
+- NATS publishers/listeners become durable Redis publication and consumption.
+- The separate Bull Expiration service becomes an Orders-internal durable due
+  worker.
+- Generic base classes become concrete functions until repetition justifies an
+  abstraction.
+- `order.cancelled` from the course is not silently renamed. The accepted local
+  fact is `order.expired`, with narrower business meaning.
+
+## The loop
+
+This is the one visual for the lesson. The arrows force the design order; the
+back edges show that recovery evidence may expose a broken earlier assumption.
 
 ```mermaid
 flowchart LR
-    A[Pass 1<br/>Business truth]
-    B[Pass 2<br/>Boundaries and timing]
-    C[Pass 3<br/>Failure and recovery]
-    D[Pass 4<br/>Operation and proof]
-    E[Sequence diagram last]
+    A[1. Business truth]
+    B[2. Boundaries and timing]
+    C[3. Failure and recovery]
+    D[4. Transport and proof]
+    E[5. Sequence diagram]
 
     A --> B --> C --> D --> E
-    C -. new failure breaks a rule .-> A
-    D -. missing evidence exposes a gap .-> C
+    C -. broken invariant .-> A
+    D -. missing evidence .-> C
 ```
 
 ## Pass 1: business truth
 
-Do not name routes, events, queues, or tables yet.
+Do not name HTTP routes, Redis streams, events, queues, or tables yet.
 
-| Step | Artifact | Questions |
+### 1. Write the journey
+
+Describe chronological behavior from the actor’s view:
+
+```text
+Actor:
+Goal:
+Successful path:
+Business rejection:
+Abandonment:
+Visible failure:
+```
+
+For Ticket purchase, the actor wants to begin a purchase. Success creates one
+pending Order and reserves one Ticket. Rejection includes an unavailable Ticket.
+A dependency failure may leave the outcome unknown to the client.
+
+### 2. Write invariants
+
+An invariant must survive retries, races, delays, and restarts.
+
+Current examples:
+
+- one Ticket cannot be reserved by two active Orders;
+- a reserved Ticket cannot be edited;
+- the Order captures the price when purchase begins;
+- complete and expired are mutually exclusive terminal Order states;
+- an old expiration cannot release a newer reservation;
+- an on-time payment already in `payment_processing` resolves before release.
+
+The course’s “find reserved tickets” code is not the invariant. The invariant is
+the rule that forces an atomic reservation guard to exist.
+
+### 3. Separate state machines
+
+```text
+Ticket: available -> reserved -> sold
+                    reserved -> available on guarded release
+
+Order: pending -> payment_processing -> complete
+       pending -> expired
+       payment_processing -> pending after failure with time remaining
+       payment_processing -> expired after failure past deadline
+```
+
+Do not merge these into one distributed state machine. Orders can decide an
+Order transition; Tickets can decide a Ticket transition. Communication causes
+convergence without transferring ownership.
+
+### 4. Assign one decision owner
+
+| Decision | Owner | Why |
 |---|---|---|
-| Journey | Chronological success, rejection, abandonment, and visible failure | What is the user trying to accomplish? |
-| Invariants | Rules that must survive retries, races, delay, and restart | What must never become false? |
-| Entities | One state machine per stateful business entity | What changes state independently? |
-| Decision owners | One service for each authoritative yes or no | Who alone may decide? |
+| Is this Ticket currently reservable? | Tickets | Tickets owns authoritative availability and the reservation lock |
+| May this Order accept payment? | Orders | Orders owns lifecycle and expiration deadline |
+| Is the Ticket sold? | Tickets | Tickets alone changes Ticket state |
+| Is the Order complete or expired? | Orders | Orders alone changes Order state |
 
-**Gate:** every state transition has one entity, one invariant, and one owner.
+**Pass 1 gate:** every transition names one entity, one invariant, and one owner.
 
 ## Pass 2: boundaries and timing
 
-Apply **FACTS** to every cross-boundary field or decision:
+Now decide why services communicate. Use **FACTS** for every value and decision.
 
 | Letter | Question |
 |---|---|
-| Function | What exact decision or visible field forces communication? |
+| Function | What exact business decision or visible field requires communication? |
 | Authority | Which service owns the truth? |
-| Currency | Is the value local, a reference, a snapshot, current truth, or a projection? |
+| Currency | Is the value local, a reference, immutable snapshot, current truth, or projection? |
 | Timing | Must the owner answer now, or may another service converge later? |
-| Safety | What happens under failure, retry, duplicate delivery, and stale data? |
+| Safety | What happens under failure, retry, duplicate, and stale data? |
 
-Then write one communication card per interaction. Name the initiator, owner,
-required result, timing, and smallest safe data contract.
+### Derive synchronous reservation
 
-**Gate:** every interaction exists for a named function. Transport is still
-unnamed.
+Function: starting an Order requires winning the Ticket reservation.
+
+Authority: Tickets owns availability.
+
+Timing: Orders cannot honestly return success before knowing whether the guarded
+reservation won.
+
+Decision: use an immediate internal Tickets request for reservation. Do not use
+an event to ask “may I reserve?” because the caller needs the authoritative
+answer now.
+
+### Derive asynchronous completion convergence
+
+Function: after Orders commits complete, Tickets must become sold.
+
+Authority: Orders owns the committed Order fact; Tickets still owns the Ticket
+transition.
+
+Timing: Tickets may converge later. A Tickets outage after payment success must
+not reverse a completed Order.
+
+Decision: Orders records a durable `order.completed` fact; Tickets consumes it
+asynchronously and performs its own guarded transition.
+
+### Classify the values
+
+| Value | Currency | Owner |
+|---|---|---|
+| `ticketId` on Order | External reference | Tickets owns referenced Ticket |
+| `priceCents` on Order | Immutable purchase snapshot | Orders owns captured amount |
+| Ticket availability | Current authoritative truth | Tickets |
+| Order status | Current authoritative truth | Orders |
+| Completed event payload | Committed fact snapshot | Orders |
+
+**Pass 2 gate:** every interaction exists for a named business function. You
+still have not selected NATS, Redis, HTTP library, or queue package.
 
 ## Pass 3: failure and recovery
 
-Generate this matrix without waiting for prompts:
+For every state-changing interaction, write this matrix before implementation:
 
 ```text
 Business rejection
 Temporary failure
 Unknown outcome after possible commit
 Caller retry
-Duplicate delivery
-Late or reordered delivery
+Duplicate request or message
+Late or reordered message
 Dependency outage
 Process restart
 Broker restart
@@ -71,57 +181,126 @@ Partial cross-service success
 Unresolved in-flight work
 ```
 
-For each state-changing interaction, define:
+Then define:
 
 - stable logical identity;
-- request or message fingerprint;
+- immutable fingerprint or request content;
 - exact replay result;
-- conflicting identity reuse behavior;
+- conflicting reuse behavior;
 - durable unfinished-work record;
 - one recovery owner;
-- duplicate guard;
-- current-state or version guard for stale work; and
+- atomic duplicate guard;
+- current-state or version guard;
 - definitive condition that ends recovery.
 
-**Gate:** you can stop the process at every commit boundary and point to what
-survives and who resumes.
+### Example: purchase begins but response is lost
 
-## Pass 4: operation and proof
+Orders uses an idempotency identity for the logical purchase attempt. A retry
+with the same identity must return the original outcome rather than create a
+second Order. Reusing it with different content must be rejected.
 
-Only now choose transport and contract details.
+### Example: publication succeeds but progress write is lost
 
-Also define:
+The Orders publication row remains unfinished. Orders owns retry. Republishing
+the same `messageId` is safe because Tickets records processed identities.
 
-| Concern | Required decision |
+### Example: old expiration arrives late
+
+Unique does not mean current. Tickets releases only if `lockedByOrderId` still
+matches the expiring Order. This protects a newer reservation.
+
+### Example: payment is in flight at the deadline
+
+Expiration cannot blindly release the Ticket while an on-time accepted payment
+has an unresolved result. Orders owns both payment eligibility and expiration,
+so one service can serialize the decision and preserve the in-flight rule.
+
+**Pass 3 gate:** you can stop the process at every commit boundary and name what
+survives, who resumes, and what ends recovery.
+
+## Pass 4: transport and proof
+
+Only now choose the mechanism.
+
+| Need | Current mechanism |
 |---|---|
-| Security staleness | Maximum time old authorization may remain accepted |
-| Compatibility | How old and new producers, consumers, tokens, and schemas coexist |
-| Rollback | Which additive changes make reversal safe |
-| Runtime evidence | Logs, metrics, rows, broker state, and reconciliation queries |
-| Stuck work | Threshold and alert that reveal permanent non-completion |
+| Immediate authoritative reservation | Internal HTTP request to Tickets |
+| Durable terminal Order fact | Orders publication ledger plus Redis Stream |
+| Shared Tickets subscription | Redis consumer group |
+| Abandoned delivery recovery | Pending entries plus `XAUTOCLAIM` |
+| Duplicate business-effect prevention | Tickets processed-event ledger |
+| Durable expiration scheduling | Orders deadline rows and due scans |
+| Poison-message evidence | Redis dead-letter stream |
 
-Draw the sequence diagram last. It may render accepted decisions but may not
-invent a new owner, contract, retry, or recovery rule.
+### Why no separate Expiration service?
 
-## Connection to the growth gaps
+Course lectures 432–450 add a Bull-backed Expiration service. The current system
+does not need a new service boundary. Orders already owns:
 
-This loop directly practices every item in
-[`service-design-growth-gaps.md`](../goals/service-design-growth-gaps.md):
-invariants first, separate state machines, FACTS classification, failure classes,
-idempotency, commit windows, duplicates, ordering, recovery ownership, in-flight
-protection, security delay, rollout, and operational evidence.
+- the Order deadline;
+- whether payment is eligible or in flight;
+- whether the Order may expire; and
+- the durable state required to retry expiration.
 
-The longer reference remains
-[`service_communication_design_guide.md`](../system_design/service_communication_design_guide.md).
+A separate service would require more contracts and failure modes without owning
+an independent business decision. Keep expiration as an Orders capability until
+measured operational needs justify a boundary.
+
+### Define runtime proof
+
+Do not stop at “add logs.” Name observable evidence:
+
+- number and oldest age of unpublished Orders publication rows;
+- Redis pending-entry count and idle age;
+- publication retry count and next retry time;
+- processed-event result: applied, duplicate, or ignored stale;
+- dead-letter count and payload evidence;
+- overdue non-terminal Orders;
+- Orders complete while matching Ticket remains reserved;
+- Orders expired while matching Ticket remains locked by that Order.
+
+**Pass 4 gate:** every permanent recovery path has a row, broker state, metric,
+or query that shows progress and reveals stuck work.
+
+## Draw last
+
+A sequence diagram is a rendered result, not a design generator. Reject a diagram
+that introduces any owner, event, field, retry, or recovery rule not accepted in
+the four passes.
+
+This prevents a common course-copying mistake: drawing NATS or Bull because the
+video uses them before deciding whether the local system needs their behavior.
+
+## Study procedure for lectures 350–450
+
+For each course lecture:
+
+1. Write the business problem in one sentence.
+2. Mark it `KEEP`, `TRANSLATE`, `SKIP`, or `GAP` using the lecture map.
+3. Name the local owner and invariant.
+4. Find the current Redis/SQLite symbol when one exists.
+5. Write the crash or race the implementation prevents.
+6. If classified `GAP`, do not pretend it exists. Record what proof is missing.
+
+Use the focused modules in [`async-systems/index.md`](async-systems/index.md)
+when the course reaches a specific block.
 
 ## Checkpoint
 
-Take one proposed feature and produce only Pass 1. Stop before Pass 2. On the next
-study session, review Pass 1 from memory before continuing.
+Take “cancel an Order” from lectures 376–377. Do not implement it. Run Pass 1:
+
+- Who may request cancellation?
+- Which Order states permit it?
+- Is cancellation the same business fact as expiration?
+- What happens to an in-flight payment?
+- Which matching Ticket lock may be released?
+
+If those answers are unresolved, routes and events would be premature.
 
 ## Exit gate
 
-Continue only when the order feels automatic:
+Continue to [Lesson 9: Guided Practice](09-guided-practice.md) only when this
+order is automatic:
 
-> Business truth → boundaries and timing → failure and recovery → operation and
+> business truth → boundaries and timing → failure and recovery → transport and
 > proof → diagram.

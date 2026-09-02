@@ -60,6 +60,17 @@ flowchart TD
 9. [`09-guided-practice.md`](09-guided-practice.md)
 10. [`10-pocket-checklist.md`](10-pocket-checklist.md)
 
+## Advanced async-systems companion
+
+After completing lessons 01–10, continue with
+[`async-systems/index.md`](async-systems/index.md).
+
+The companion maps external course lectures 314–450 to this repository's
+Redis Streams, SQLite, Orders, Tickets, publication-ledger, processed-event,
+concurrency, and expiration decisions. It labels each lecture `KEEP`,
+`TRANSLATE`, `SKIP`, or `GAP` so course mechanics do not silently replace the
+accepted service boundaries.
+
 ## Course rule
 
 Do not ask **“REST or Redis?”** until you can name:
