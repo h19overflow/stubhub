@@ -112,3 +112,13 @@ portForward:
     namespace: stubhub
     port: 8025
     localPort: 8025
+  - resourceType: service
+    resourceName: nats-srv
+    namespace: stubhub
+    port: 4222
+    localPort: 4222
+  - resourceType: service
+    resourceName: nats-srv
+    namespace: stubhub
+    port: 8222
+    localPort: 8222
