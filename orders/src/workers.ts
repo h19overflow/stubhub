@@ -25,9 +25,8 @@ import {
 } from "./orders/order-repo.js";
 import {
   dueAttempts,
-  resolveAttempt,
+  progressPaymentAttempt,
   scheduleAttempt,
-  updateProviderReference,
 } from "./payments/payment-attempt-repo.js";
 import type { PaymentAttemptRow } from "./payments/payment-attempt.js";
 import { lookup, submit } from "./payments/local-provider.js";
@@ -101,16 +100,7 @@ function reconcilePayment(attempt: PaymentAttemptRow): void {
   try {
     const now = Date.now();
     const provider = providerResult(attempt, now);
-    if (!updateProviderReference(attempt, provider.reference, now)) return;
-    if (provider.status !== "processing") {
-      resolveAttempt(
-        attempt.id,
-        provider.status === "succeeded" ? "succeeded" : "declined",
-        provider.reference,
-        provider.failureCode,
-        now,
-      );
-    }
+    progressPaymentAttempt(attempt, provider, now);
   } catch (error) {
     scheduleAttempt(
       attempt,

@@ -1,5 +1,5 @@
 import { database } from "../database.js";
-import { toTicket } from "./ticket.js";
+import { ticketsOrderConvergenceConsumer, toTicket } from "./ticket.js";
 import type {
   ConvergenceOutcome,
   CreateTicketInput,
@@ -618,7 +618,7 @@ function applyReleaseConvergence(event: OrderEvent): void {
 function applyOrderEventOnce(
   event: OrderEvent,
 ): { duplicate: boolean; outcome?: ConvergenceOutcome } {
-  const consumer = "tickets-order-convergence";
+  const consumer = ticketsOrderConvergenceConsumer;
   database.exec("BEGIN IMMEDIATE");
   try {
     const duplicate = database

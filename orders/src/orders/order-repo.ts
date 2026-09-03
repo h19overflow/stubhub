@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { database, withTransaction } from "../database.js";
+import { enqueueOrderEventPublication } from "../messaging/order-event-publication-repo.js";
 import { toOrder } from "./order.js";
 import { retryDelayMs } from "../retry-delay.js";
 import type { Order, OrderRow } from "./order.js";
@@ -394,24 +395,15 @@ function enqueueTerminal(
     }
     if (!row) return null;
 
-    database
-      .prepare(
-        `INSERT INTO order_event_publications(
-           id,aggregate_type,aggregate_id,aggregate_version,event_type,
-           event_version,payload,created_at,updated_at,next_attempt_at
-         )
-         VALUES(?,'order',?,?,?,1,?,?,?,?)`,
-      )
-      .run(
-        randomUUID(),
-        orderId,
-        row.version,
-        eventType,
-        JSON.stringify({ ticketId: row.ticket_id }),
-        now,
-        now,
-        now,
-      );
+    enqueueOrderEventPublication({
+      id: randomUUID(),
+      aggregateType: "order",
+      aggregateId: orderId,
+      aggregateVersion: row.version,
+      eventType,
+      eventVersion: 1,
+      payload: { ticketId: row.ticket_id },
+    });
     return toOrder(row);
   });
 }

@@ -113,6 +113,8 @@ type ReleaseReservationOutcome =
   | "sold"
   | "missing";
 
+const ticketsOrderConvergenceConsumer = "tickets-order-convergence";
+
 type OrderEvent = {
   messageId: string;
   eventType: "order.completed" | "order.expired";
@@ -162,7 +164,7 @@ function toTicket(row: TicketRow): Ticket {
   };
 }
 
-export { toTicket };
+export { ticketsOrderConvergenceConsumer, toTicket };
 export type {
   ConvergenceOutcome,
   CreateTicketInput,

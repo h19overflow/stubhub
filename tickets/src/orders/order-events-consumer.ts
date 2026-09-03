@@ -2,11 +2,12 @@ import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createClient } from "redis";
 import { orderEventSchema } from "../tickets/schemas.js";
+import { ticketsOrderConvergenceConsumer } from "../tickets/ticket.js";
 import { applyOrderEventOnce } from "../tickets/ticket-repo.js";
 
 const stream = "orders.events";
 const deadLetterStream = "orders.events.dead-letter";
-const group = "tickets-order-convergence";
+const group = ticketsOrderConvergenceConsumer;
 const consumer = `${hostname()}-${process.pid}-${randomUUID()}`;
 
 /**

@@ -6,9 +6,8 @@ import { submit } from "./local-provider.js";
 import {
   beginPayment,
   processing,
-  resolveAttempt,
+  progressPaymentAttempt,
   rowByKey,
-  updateProviderReference,
 } from "./payment-attempt-repo.js";
 import { toPaymentAttempt } from "./payment-attempt.js";
 import type {
@@ -178,23 +177,15 @@ async function submitOrderPayment(
     return paymentResult(begun.order, begun.attempt);
   }
 
-  updateProviderReference(begun.attemptRow, provider.reference, Date.now());
-  if (provider.status === "processing") {
-    return paymentResult(begun.order, {
-      ...begun.attempt,
-      providerReference: provider.reference,
-    });
-  }
-
-  const resolved = resolveAttempt(
-    begun.attempt.id,
-    provider.status === "succeeded" ? "succeeded" : "declined",
-    provider.reference,
-    provider.failureCode,
+  const progressed = progressPaymentAttempt(
+    begun.attemptRow,
+    provider,
     Date.now(),
   );
-  if (!resolved) throw new Error("payment resolution missing");
-  return paymentResult(resolved.order, resolved.attempt);
+  if (!progressed) {
+    return paymentResult(begun.order, begun.attempt);
+  }
+  return paymentResult(progressed.order ?? begun.order, progressed.attempt);
 }
 
 export { parsePaymentCommand, submitOrderPayment };

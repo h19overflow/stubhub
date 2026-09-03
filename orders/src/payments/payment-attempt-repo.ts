@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { database, withTransaction } from "../database.js";
+import { enqueueOrderEventPublication } from "../messaging/order-event-publication-repo.js";
 import { toOrder } from "../orders/order.js";
 import type { Order, OrderRow } from "../orders/order.js";
 import { retryDelayMs } from "../retry-delay.js";
@@ -208,24 +209,15 @@ function resolveAttempt(
     if (!order) throw new Error("payment order transition lost");
 
     if (order.status === "complete" || order.status === "expired") {
-      database
-        .prepare(
-          `INSERT INTO order_event_publications(
-             id,aggregate_type,aggregate_id,aggregate_version,event_type,
-             event_version,payload,created_at,updated_at,next_attempt_at
-           )
-           VALUES(?,'order',?,?,?,1,?,?,?,?)`,
-        )
-        .run(
-          randomUUID(),
-          order.id,
-          order.version,
-          order.status === "complete" ? "order.completed" : "order.expired",
-          JSON.stringify({ ticketId: order.ticket_id }),
-          now,
-          now,
-          now,
-        );
+      enqueueOrderEventPublication({
+        id: randomUUID(),
+        aggregateType: "order",
+        aggregateId: order.id,
+        aggregateVersion: order.version,
+        eventType: order.status === "complete" ? "order.completed" : "order.expired",
+        eventVersion: 1,
+        payload: { ticketId: order.ticket_id },
+      });
     }
 
     const updated = database
@@ -279,13 +271,65 @@ function scheduleAttempt(
   return Number(result.changes) === 1;
 }
 
+type ProgressPaymentAttemptResult =
+  | { outcome: "processing"; attempt: PaymentAttempt; order?: Order }
+  | { outcome: "resolved"; attempt: PaymentAttempt; order: Order };
+
+/**
+ * Progresses a payment attempt against a provider result: updates the provider
+ * reference, and if the provider reached a non-processing outcome (succeeded or
+ * declined), resolves the attempt and order transition in a guarded transaction.
+ */
+function progressPaymentAttempt(
+  attempt: PaymentAttemptRow,
+  provider: {
+    reference: string;
+    status: "processing" | "succeeded" | "declined";
+    failureCode: string | null;
+  },
+  now: number,
+): ProgressPaymentAttemptResult | null {
+  if (!updateProviderReference(attempt, provider.reference, now)) {
+    return null;
+  }
+
+  if (provider.status === "processing") {
+    return {
+      outcome: "processing",
+      attempt: {
+        ...toPaymentAttempt(attempt),
+        providerReference: provider.reference,
+      },
+    };
+  }
+
+  const resolved = resolveAttempt(
+    attempt.id,
+    provider.status === "succeeded" ? "succeeded" : "declined",
+    provider.reference,
+    provider.failureCode,
+    now,
+  );
+  if (!resolved) {
+    throw new Error("payment resolution missing");
+  }
+
+  return {
+    outcome: "resolved",
+    attempt: resolved.attempt,
+    order: resolved.order,
+  };
+}
+
 export {
   beginPayment,
   dueAttempts,
   processing,
+  progressPaymentAttempt,
   resolveAttempt,
   rowByKey,
   scheduleAttempt,
   updateProviderReference,
 };
-export type { BeginPaymentResult };
+export type { BeginPaymentResult, ProgressPaymentAttemptResult };
+

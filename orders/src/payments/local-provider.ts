@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { database, withTransaction } from "../database.js";
 import type { ProviderScenario } from "./payment-attempt.js";
 
-type ProviderResult = {
+export type ProviderResult = {
   reference: string;
   status: "processing" | "succeeded" | "declined";
   failureCode: string | null;
