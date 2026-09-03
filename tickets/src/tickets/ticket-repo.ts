@@ -609,11 +609,12 @@ function applyReleaseConvergence(event: OrderEvent): void {
 }
 
 /**
- * Atomically applies an order event by checking the processed-event ledger,
- * applying the guarded Ticket transition, and recording its receipt in one
- * transaction. A duplicate commits no state change and returns
- * `{ duplicate: true }`; first processing returns its outcome. Errors roll
- * back both changes so the Redis caller can retry without acknowledging.
+ * [STAGE 4: CONVERGE & ACK]
+ * Atomically checks the processed-event ledger (`processed_order_events`), applies
+ * the guarded Ticket convergence transition, and records receipt in one transaction.
+ * A duplicate commits no state change and returns `{ duplicate: true }`; first processing
+ * returns its outcome. Errors roll back both changes so the Redis caller can retry
+ * without acknowledging.
  */
 function applyOrderEventOnce(
   event: OrderEvent,

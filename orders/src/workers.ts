@@ -30,12 +30,7 @@ import {
 } from "./payments/payment-attempt-repo.js";
 import type { PaymentAttemptRow } from "./payments/payment-attempt.js";
 import { lookup, submit } from "./payments/local-provider.js";
-import {
-  listDueOrderEventPublications,
-  markOrderEventPublished,
-  recordOrderEventPublicationFailure,
-} from "./messaging/order-event-publication-repo.js";
-import type { OrderEventPublication } from "./messaging/order-event-publication.js";
+import { dispatchOutboxBatch } from "./messaging/outbox-dispatcher.js";
 
 // Read worker timing from the environment once during service startup.
 function positiveIntegerSetting(name: string, fallback: number): number {
@@ -117,69 +112,11 @@ function scanPayments(): void {
 }
 
 /**
- * Publishes one durable event publication record before recording database progress.
- *
- * Redis XADD happens before the row is marked published. A restart in that gap
- * republishes the same messageId, which the Tickets processed-event ledger can
- * safely deduplicate. A failed attempt records retry state instead of removing
- * the durable publication.
+ * [STAGE 2: DISPATCH]
+ * Invokes the outbox dispatcher to send pending order events to Redis Streams.
  */
-async function publishOrderEventPublication(
-  publication: OrderEventPublication,
-): Promise<void> {
-  const envelope = {
-    messageId: publication.id,
-    eventType: publication.eventType,
-    eventVersion: publication.eventVersion,
-    aggregateType: publication.aggregateType,
-    aggregateId: publication.aggregateId,
-    aggregateVersion: publication.aggregateVersion,
-    occurredAt: publication.createdAt,
-    payload: publication.payload,
-  };
-  try {
-    await redis.xAdd("orders.events", "*", {
-      event: JSON.stringify(envelope),
-    });
-    markOrderEventPublished(publication.id);
-  } catch (error) {
-    recordOrderEventPublicationFailure(
-      publication,
-      error instanceof Error ? error.message : "publication failed",
-      Date.now(),
-    );
-  }
-}
-
-/**
- * Reloads a bounded batch of due unpublished event publications from the Orders
- * database.
- *
- * The database, not this process, owns the retry queue. After a restart this
- * scan reconnects Redis, republishes due rows, and persists connection or
- * publication failures for a later scan.
-*/
 async function scanOrderEventPublications(): Promise<void> {
-const now = Date.now();
-const publications = listDueOrderEventPublications(now, 100);
-if (publications.length === 0) return;
-
-if (!redis.isOpen) {
-  try {
-    await redis.connect();
-  } catch (error) {
-    const reason =
-      error instanceof Error ? error.message : "Redis connection failed";
-    for (const publication of publications) {
-      recordOrderEventPublicationFailure(publication, reason, now);
-    }
-    return;
-  }
-}
-
-for (const publication of publications) {
-  await publishOrderEventPublication(publication);
-}
+  await dispatchOutboxBatch(redis);
 }
 
 /**

@@ -362,10 +362,11 @@ function duePending(now: number): string[] {
 }
 
 /**
+ * [STAGE 1: STAGE]
  * Atomically applies a guarded terminal order transition and inserts its matching
- * event publication. Completed events require payment_processing; expired events
- * require a still-pending, already-expired order. Returns null when the guarded
- * state no longer matches, otherwise the transitioned durable order.
+ * event publication into the outbox ledger (`order_event_publications`). Completed
+ * events require payment_processing; expired events require a still-pending, already-expired order.
+ * Returns null when the guarded state no longer matches, otherwise the transitioned durable order.
  */
 function enqueueTerminal(
   orderId: string,

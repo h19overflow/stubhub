@@ -24,11 +24,11 @@ const orderEventPublicationColumns = `
 `;
 
 /**
- * Stores a business fact for later publication.
+ * [STAGE 1: STAGE] Transactional Outbox Staging
  *
- * Call this in the same database transaction as the Order change that produced
- * the fact. The inserted row starts unpublished and immediately due, so the
- * publisher can retry it without losing a committed event.
+ * Stores a committed business fact in `order_event_publications` for later dispatch.
+ * Must be called in the same database transaction as the state transition that produced it.
+ * The inserted row starts unpublished (published_at = NULL) and immediately due.
  */
 function enqueueOrderEventPublication(
   input: EnqueueOrderEventPublicationInput,

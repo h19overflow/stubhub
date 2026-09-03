@@ -90,9 +90,11 @@ async function startOrderEventsConsumer(): Promise<() => Promise<void>> {
   let stopping = false;
 
   /**
-   * Handles one Redis entry. Poison entries are written to the dead-letter
-   * stream before ACK; valid entries finish their processed-event/Ticket
-   * transaction before ACK. A failure before ACK leaves the entry pending.
+   * [STAGE 3: INGEST & STAGE 4: CONVERGE & ACK]
+   * Handles one Redis entry:
+   * 1. [STAGE 3: INGEST] Schema-validates entry; poison entries dead-lettered before ACK.
+   * 2. [STAGE 4: CONVERGE & ACK] Calls applyOrderEventOnce (deduplicates in ledger + updates Ticket).
+   * 3. Sends Redis XACK only after durable database commit.
    */
   async function processEntry(entry: StreamEntry): Promise<void> {
     const event = parseEvent(entry);

@@ -365,6 +365,7 @@ function transitionOrderOnPaymentResolution(
 }
 
 /**
+ * [STAGE 1: STAGE]
  * Enqueues a durable event publication (order.completed or order.expired) when
  * an order transitions to a terminal state. No-ops for non-terminal orders.
  */
