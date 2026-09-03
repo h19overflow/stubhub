@@ -160,69 +160,25 @@ function resolveAttempt(
   now: number,
 ): { order: Order; attempt: PaymentAttempt } | null {
   return withTransaction(() => {
-    const attempt = database
-      .prepare(`SELECT ${attemptColumns} FROM payment_attempts WHERE id=?`)
-      .get(id) as PaymentAttemptRow | undefined;
+    const attempt = findPaymentAttemptRow(id);
     if (!attempt) return null;
 
     if (attempt.status !== "processing") {
-      const order = database
-        .prepare(`SELECT ${orderColumns} FROM orders WHERE id=?`)
-        .get(attempt.order_id) as OrderRow;
+      const order = findOrderRowById(attempt.order_id);
+      if (!order) throw new Error("payment order missing");
       return { order: toOrder(order), attempt: toPaymentAttempt(attempt) };
     }
 
-    database
-      .prepare(
-        `UPDATE payment_attempts
-         SET status=?,provider_reference=?,failure_code=?,next_reconcile_at=NULL,
-             last_reconcile_error=NULL,updated_at=?
-         WHERE id=? AND status='processing'`,
-      )
-      .run(
-        outcome === "succeeded" ? "succeeded" : "failed",
-        reference,
-        failure,
-        now,
-        id,
-      );
+    updatePaymentAttemptTerminalStatus(id, outcome, reference, failure, now);
 
-    const order =
-      outcome === "succeeded"
-        ? (database
-            .prepare(
-              `UPDATE orders
-               SET status='complete',version=version+1,updated_at=?
-               WHERE id=? AND status='payment_processing'
-               RETURNING ${orderColumns}`,
-            )
-            .get(now, attempt.order_id) as OrderRow | undefined)
-        : (database
-            .prepare(
-              `UPDATE orders
-               SET status=CASE WHEN expires_at>? THEN 'pending' ELSE 'expired' END,
-                   version=version+1,updated_at=?
-               WHERE id=? AND status='payment_processing'
-               RETURNING ${orderColumns}`,
-            )
-            .get(now, now, attempt.order_id) as OrderRow | undefined);
+    const order = transitionOrderOnPaymentResolution(attempt.order_id, outcome, now);
     if (!order) throw new Error("payment order transition lost");
 
-    if (order.status === "complete" || order.status === "expired") {
-      enqueueOrderEventPublication({
-        id: randomUUID(),
-        aggregateType: "order",
-        aggregateId: order.id,
-        aggregateVersion: order.version,
-        eventType: order.status === "complete" ? "order.completed" : "order.expired",
-        eventVersion: 1,
-        payload: { ticketId: order.ticket_id },
-      });
-    }
+    enqueueTerminalOrderEvent(order);
 
-    const updated = database
-      .prepare(`SELECT ${attemptColumns} FROM payment_attempts WHERE id=?`)
-      .get(id) as PaymentAttemptRow;
+    const updated = findPaymentAttemptRow(id);
+    if (!updated) throw new Error("updated payment attempt missing");
+
     return { order: toOrder(order), attempt: toPaymentAttempt(updated) };
   });
 }
@@ -319,6 +275,113 @@ function progressPaymentAttempt(
     attempt: resolved.attempt,
     order: resolved.order,
   };
+}
+
+/**
+ * Fetches a raw PaymentAttemptRow by ID, returning null if not found.
+ */
+function findPaymentAttemptRow(id: string): PaymentAttemptRow | null {
+  return (
+    (database
+      .prepare(`SELECT ${attemptColumns} FROM payment_attempts WHERE id=?`)
+      .get(id) as PaymentAttemptRow | undefined) ?? null
+  );
+}
+
+/**
+ * Fetches a raw OrderRow by ID for internal payment resolution workflows.
+ */
+function findOrderRowById(id: string): OrderRow | null {
+  return (
+    (database
+      .prepare(`SELECT ${orderColumns} FROM orders WHERE id=?`)
+      .get(id) as OrderRow | undefined) ?? null
+  );
+}
+
+/**
+ * Updates a processing payment attempt to its terminal status (succeeded or failed)
+ * with the provider reference and failure code, clearing scheduled reconciliation.
+ */
+function updatePaymentAttemptTerminalStatus(
+  id: string,
+  outcome: "succeeded" | "declined",
+  reference: string,
+  failure: string | null,
+  now: number,
+): void {
+  database
+    .prepare(
+      `UPDATE payment_attempts
+       SET status=?,provider_reference=?,failure_code=?,next_reconcile_at=NULL,
+           last_reconcile_error=NULL,updated_at=?
+       WHERE id=? AND status='processing'`,
+    )
+    .run(
+      outcome === "succeeded" ? "succeeded" : "failed",
+      reference,
+      failure,
+      now,
+      id,
+    );
+}
+
+/**
+ * Applies a guarded status transition to the Order following payment resolution.
+ * If payment succeeded, transitions payment_processing -> complete.
+ * If payment was declined, transitions payment_processing -> pending (if not yet expired)
+ * or -> expired (if the expiration deadline has passed). Returns the updated OrderRow
+ * or null if the guarded status no longer matched.
+ */
+function transitionOrderOnPaymentResolution(
+  orderId: string,
+  outcome: "succeeded" | "declined",
+  now: number,
+): OrderRow | null {
+  if (outcome === "succeeded") {
+    return (
+      (database
+        .prepare(
+          `UPDATE orders
+           SET status='complete',version=version+1,updated_at=?
+           WHERE id=? AND status='payment_processing'
+           RETURNING ${orderColumns}`,
+        )
+        .get(now, orderId) as OrderRow | undefined) ?? null
+    );
+  }
+
+  return (
+    (database
+      .prepare(
+        `UPDATE orders
+         SET status=CASE WHEN expires_at>? THEN 'pending' ELSE 'expired' END,
+             version=version+1,updated_at=?
+         WHERE id=? AND status='payment_processing'
+         RETURNING ${orderColumns}`,
+      )
+      .get(now, now, orderId) as OrderRow | undefined) ?? null
+  );
+}
+
+/**
+ * Enqueues a durable event publication (order.completed or order.expired) when
+ * an order transitions to a terminal state. No-ops for non-terminal orders.
+ */
+function enqueueTerminalOrderEvent(order: OrderRow): void {
+  if (order.status !== "complete" && order.status !== "expired") {
+    return;
+  }
+
+  enqueueOrderEventPublication({
+    id: randomUUID(),
+    aggregateType: "order",
+    aggregateId: order.id,
+    aggregateVersion: order.version,
+    eventType: order.status === "complete" ? "order.completed" : "order.expired",
+    eventVersion: 1,
+    payload: { ticketId: order.ticket_id },
+  });
 }
 
 export {
