@@ -152,5 +152,8 @@ communication, event, API, and recovery decisions exist.
 - Do not share databases between services.
 - Do not add a separate Payments, Expiration, Command Tickets, or Query Tickets
   service without a concrete independent boundary.
+- Structure subsystem boundaries as deep modules (`skill://deep-module-design`, `skill://information-hiding`):
+  hide transport details, internal database schemas, batching, and retry loops behind
+  simple intent-oriented interfaces.
 - Keep manual verification small and local. Do not add automated tests unless the
   user explicitly requests them.
