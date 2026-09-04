@@ -15,7 +15,7 @@
  * restart is safe because the next scan reads the durable work again.
  */
 
-import { createClient } from "redis";
+
 import { processPurchase } from "./orders/purchase-workflow.js";
 import {
   duePending,
@@ -30,7 +30,7 @@ import {
 } from "./payments/payment-attempt-repo.js";
 import type { PaymentAttemptRow } from "./payments/payment-attempt.js";
 import { lookup, submit } from "./payments/local-provider.js";
-import { dispatchOutboxBatch } from "./messaging/outbox-dispatcher.js";
+import { dispatchDueOrderEvents, closeOrderMessaging } from "./messaging/index.js";
 
 // Read worker timing from the environment once during service startup.
 function positiveIntegerSetting(name: string, fallback: number): number {
@@ -50,13 +50,7 @@ let timer: NodeJS.Timeout | null = null;
 // scans and lets shutdown wait for active work; it does not represent durable work.
 let running = false;
 
-// Redis carries completed/expired Order facts to the Tickets service.
-// The connection is opened lazily only when a stored event is due for publication.
-const redis = createClient({
-  url: process.env.REDIS_URL ?? "redis://redis:6379",
-  socket: { connectTimeout: 1_000, reconnectStrategy: false },
-});
-redis.on("error", (error) => console.error("Orders Redis error", error));
+
 
 // Continue reservation work that an HTTP request could not finish immediately.
 async function scanPurchases(): Promise<void> {
@@ -113,10 +107,10 @@ function scanPayments(): void {
 
 /**
  * [STAGE 2: DISPATCH]
- * Invokes the outbox dispatcher to send pending order events to Redis Streams.
+ * Dispatches due staged order events to the event bus.
  */
 async function scanOrderEventPublications(): Promise<void> {
-  await dispatchOutboxBatch(redis);
+  await dispatchDueOrderEvents();
 }
 
 /**
@@ -153,7 +147,7 @@ async function startWorkers(): Promise<void> {
 }
 
 /**
- * Stops future scans, waits for the active scan, then closes Redis.
+ * Stops future scans, waits for the active scan, then closes transport resources.
  *
  * Graceful shutdown narrows the uncertain publish window. An abrupt shutdown
  * remains recoverable because unpublished rows and stable message IDs are
@@ -165,7 +159,7 @@ async function stopWorkers(): Promise<void> {
   while (running) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  if (redis.isOpen) await redis.quit();
+  await closeOrderMessaging();
 }
 
 export { startWorkers, stopWorkers };

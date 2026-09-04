@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { database, withTransaction } from "../database.js";
-import { enqueueOrderEventPublication } from "../messaging/order-event-publication-repo.js";
+import { enqueueOrderFact } from "../messaging/index.js";
 import { toOrder } from "../orders/order.js";
 import type { Order, OrderRow } from "../orders/order.js";
 import { retryDelayMs } from "../retry-delay.js";
@@ -374,13 +374,10 @@ function enqueueTerminalOrderEvent(order: OrderRow): void {
     return;
   }
 
-  enqueueOrderEventPublication({
-    id: randomUUID(),
-    aggregateType: "order",
-    aggregateId: order.id,
-    aggregateVersion: order.version,
+  enqueueOrderFact({
+    orderId: order.id,
+    orderVersion: order.version,
     eventType: order.status === "complete" ? "order.completed" : "order.expired",
-    eventVersion: 1,
     payload: { ticketId: order.ticket_id },
   });
 }
