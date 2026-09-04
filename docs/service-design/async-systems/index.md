@@ -71,6 +71,8 @@ flowchart TD
 4. [`04-concurrency-versioning-and-locks.md`](04-concurrency-versioning-and-locks.md)
 5. [`05-expiration-without-an-expiration-service.md`](05-expiration-without-an-expiration-service.md)
 6. [`06-runtime-proof-and-failure-drills.md`](06-runtime-proof-and-failure-drills.md)
+7. [`07-flawed-concurrency-patterns.md`](07-flawed-concurrency-patterns.md)
+8. [`08-durable-subscriptions.md`](08-durable-subscriptions.md)
 
 Keep [`lecture-map-314-450.md`](lecture-map-314-450.md) open beside the external course. It tells you whether to keep, translate, skip, or treat each lecture as a gap.
 

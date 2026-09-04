@@ -208,12 +208,118 @@ Despite appearing mathematically sound, this pattern collapses under four concre
 Instead of relying on the **broker's sequence numbers** or the **publisher's memory**, the solution is to place the versioning authority directly inside the **resource itself** (the Database record).
 
 1. **Entity Owns Its Version**:
-   - The entity in the database owns an integer `version` field (starts at `0`).
-2. **Publisher Increments Entity Version**:
-   - When the Ticket or Account service updates state, it increments `version: version + 1` and embeds that version into the event payload.
-3. **Consumer Enforces Consecutive Version Transitions**:
-   - The consumer only applies an update if `event.version === record.version + 1`.
-   - If `event.version > record.version + 1`, the consumer knows an intermediate event is still in transit and refuses to commit the update.
-   - If `event.version <= record.version`, the consumer knows it's a duplicate and ignores it (idempotency).
+   - The primary service that manages the resource (`Tickets Service`) owns an integer `version` field (starts at `1` or `0`).
+   - Only this canonical service increments `version`.
+2. **Publisher Emits Version in Every Event**:
+   - When the Tickets Service updates state, it increments `version = version + 1` and embeds `{ id, price, version }` into the emitted event.
+3. **Consumer Enforces Consecutive Version Transitions (`expectedVersion = currentVersion + 1`)**:
+   - When the `Orders Service` receives an update event with version `V`:
+     - It queries its replicated Ticket record where `id = event.id AND version = event.version - 1`.
+     - **Match found**: Commit the update, set local record version to `V`, and **ACK** to NATS.
+     - **Match NOT found (Missing prior version / Out of order)**: Do **NOT ACK** the message! Throw an error or let it time out (e.g. 30 seconds). NATS will redeliver it later after the missing predecessor arrives and is processed.
+     - **Duplicate (event.version <= record.version)**: Ignore or ACK immediately (idempotent no-op).
 
-This decouples the system from broker-specific sequence mechanics and ensures consistency purely through database-level invariants.
+---
+
+### End-to-End Visual Flow: Tickets Publishing & Out-of-Order Delivery
+
+The following diagrams illustrate the exact scenario from the lecture transcript:
+1. Ticket `Q` is created at `$10` (`v1`), updated to `$50` (`v2`), and updated to `$100` (`v3`).
+2. The events arrive out of order at `Orders Service` replicas (or fail transiently), trigger redelivery timeouts (30s `ackWait`), and self-heal strictly through record-level version checking.
+
+#### Step 1: Canonical Ticket Service State & Event Generation
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Client / User
+    participant T_DB as Tickets DB (Canonical)
+    participant T_SVC as Tickets Service
+    participant NATS as NATS Streaming Server
+
+    Note over T_DB: No record for Q
+
+    User->>T_SVC: 1. POST /tickets { id: "Q", price: 10 }
+    T_SVC->>T_DB: INSERT Ticket { id: "Q", price: 10, version: 1 }
+    T_SVC->>NATS: Publish: TicketCreated { id: "Q", price: 10, version: 1 }
+
+    Note over User,T_SVC: Rapid successive updates...
+
+    User->>T_SVC: 2. PUT /tickets/Q { price: 50 }
+    T_SVC->>T_DB: UPDATE Ticket Q SET price=50, version=2 WHERE version=1
+    T_SVC->>NATS: Publish: TicketUpdated { id: "Q", price: 50, version: 2 }
+
+    User->>T_SVC: 3. PUT /tickets/Q { price: 100 }
+    T_SVC->>T_DB: UPDATE Ticket Q SET price=100, version=3 WHERE version=2
+    T_SVC->>NATS: Publish: TicketUpdated { id: "Q", price: 100, version: 3 }
+```
+
+#### Step 2: Orders Service Handling Out-of-Order Delivery & Unacknowledged Timeouts
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant NATS as NATS Streaming (ackWait = 30s)
+    participant Ord_A as Orders Worker A
+    participant Ord_B as Orders Worker B
+    participant O_DB as Orders DB (Replicated Tickets)
+
+    Note over O_DB: Orders DB has NO Ticket Q yet
+
+    Note over NATS,Ord_B: --- Initial Delivery (Event 1 fails, Event 2 arrives out of order) ---
+    NATS->>Ord_A: Deliver [Event 1: Created Q, price: 10, v: 1]
+    Note over Ord_A: Worker A crashes or encounters transient DB error!<br/>Event 1 is NOT ACKed.
+    NATS->>Ord_B: Deliver [Event 2: Updated Q, price: 50, v: 2]
+    Ord_B->>O_DB: Query Ticket WHERE id="Q" AND version=1 (v2 - 1)
+    O_DB-->>Ord_B: Not Found! (DB has no v1)
+    Note over Ord_B: ⚠️ Predecessor v1 missing!<br/>Do NOT ACK! Let message time out.
+
+    Note over NATS,Ord_A: --- 30s Ack Timeout Expires on Event 1 ---
+    Note over NATS: ⏰ ackWait (30s) expires for Event 1.<br/>NATS re-delivers Event 1!
+    NATS->>Ord_A: REDELIVER [Event 1: Created Q, price: 10, v: 1]
+    Ord_A->>O_DB: INSERT Ticket { id: "Q", price: 10, version: 1 }
+    Ord_A-->>NATS: ACK Event 1
+    Note over O_DB: State: { id: "Q", price: 10, version: 1 }
+
+    Note over NATS,Ord_B: --- Event 3 Arrives Before Event 2 Redelivers ---
+    NATS->>Ord_B: Deliver [Event 3: Updated Q, price: 100, v: 3]
+    Ord_B->>O_DB: Query Ticket WHERE id="Q" AND version=2 (v3 - 1)
+    O_DB-->>Ord_B: Not Found! (Current version is 1, not 2)
+    Note over Ord_B: ⚠️ Version mismatch: expected v2, found v1.<br/>Do NOT ACK! Drop/error and let time out.
+
+    Note over NATS,Ord_A: --- 30s Ack Timeout Expires on Event 2 ---
+    Note over NATS: ⏰ ackWait (30s) expires for Event 2.<br/>NATS re-delivers Event 2!
+    NATS->>Ord_A: REDELIVER [Event 2: Updated Q, price: 50, v: 2]
+    Ord_A->>O_DB: Query Ticket WHERE id="Q" AND version=1 (v2 - 1)
+    Ord_A-->>O_DB: Found! (v1 matches)
+    Ord_A->>O_DB: UPDATE Ticket Q SET price=50, version=2 WHERE version=1
+    Ord_A-->>NATS: ACK Event 2
+    Note over O_DB: State: { id: "Q", price: 50, version: 2 }
+
+    Note over NATS,Ord_B: --- 30s Ack Timeout Expires on Event 3 ---
+    Note over NATS: ⏰ ackWait (30s) expires for Event 3.<br/>NATS re-delivers Event 3!
+    NATS->>Ord_B: REDELIVER [Event 3: Updated Q, price: 100, v: 3]
+    Ord_B->>O_DB: Query Ticket WHERE id="Q" AND version=2 (v3 - 1)
+    Ord_B-->>O_DB: Found! (v2 matches)
+    Ord_B->>O_DB: UPDATE Ticket Q SET price=100, version=3 WHERE version=2
+    Ord_B-->>NATS: ACK Event 3
+    Note over O_DB: State: { id: "Q", price: 100, version: 3 } ✅ Fully Converged!
+```
+
+#### Consumer Decision Logic Matrix
+
+```mermaid
+flowchart TD
+    Recv["Receive Event { id, price, version }"] --> Query["Find Ticket in DB WHERE id = event.id"]
+    Query --> Exists{"Ticket exists?"}
+
+    Exists -- "No" --> IsV1{"Is event.version == 1?"}
+    IsV1 -- "Yes (Creation)" --> Insert["INSERT Ticket { id, price, version: 1 }"] --> Ack["ACK to NATS"]
+    IsV1 -- "No (Out of Order)" --> RejectNoAck1["Do NOT ACK (Throw Error / Wait for ackWait timeout)"]
+
+    Exists -- "Yes" --> CheckVer{"dbTicket.version == event.version - 1 ?"}
+    CheckVer -- "Yes (Next consecutive version)" --> Update["UPDATE Ticket SET price = event.price, version = event.version"] --> Ack
+    CheckVer -- "No: event.version <= dbTicket.version" --> Duplicate["Duplicate / Stale event $\rightarrow$ ACK immediately (No-op)"]
+    CheckVer -- "No: event.version > dbTicket.version + 1" --> RejectNoAck2["Future event ahead of order $\rightarrow$ Do NOT ACK (Wait for ackWait redelivery)"]
+```
+

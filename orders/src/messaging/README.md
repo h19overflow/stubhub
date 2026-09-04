@@ -8,18 +8,21 @@ The Orders service produces durable business facts (`order.completed`, `order.ex
 
 ## How It Works in Orders
 
-1. **[STAGE 1: STAGE] `order-event-publication-repo.ts`**
+1. **Deep Module Boundary (`index.ts`)**
+   - Callers express domain intent (`enqueueOrderFact`, `dispatchDueOrderEvents`, `closeOrderMessaging`).
+   - Hides transport connection state, JSON serialization, envelope formatting, stream key names, and retry schedules.
+
+2. **[STAGE 1: STAGE] `order-event-publication-repo.ts`**
    - When an order transitions to `complete` or `expired` (in `order-repo.ts` or `payment-attempt-repo.ts`), an event publication is inserted into `order_event_publications` **in the exact same database transaction**.
    - Ensures zero lost events even during abrupt server crashes.
 
-2. **[STAGE 2: DISPATCH] `outbox-dispatcher.ts`**
-   - Called by the background worker loop in `workers.ts`.
+3. **[STAGE 2: DISPATCH] `outbox-dispatcher.ts`**
+   - Called by the background worker loop via `dispatchDueOrderEvents()`.
    - Polls due rows (`published_at IS NULL AND next_attempt_at <= now`).
    - Appends entries to Redis Stream `orders.events` using `XADD`.
    - On success, sets `published_at = now`.
    - On failure, increments `attempt_count` and applies exponential backoff in `next_attempt_at`.
-
-3. **Transport Separation**
+4. **Transport Separation**
    - Redis is transport only; Orders' local SQLite database remains authoritative.
 
 ```mermaid
@@ -56,6 +59,7 @@ sequenceDiagram
 
 ## File Map
 
+- [index.ts](file:///c:/Users/User/publicprojects/MicroServices/stubhub/orders/src/messaging/index.ts): Deep module facade (`enqueueOrderFact`, `dispatchDueOrderEvents`, `closeOrderMessaging`).
 - [order-event-publication.ts](file:///c:/Users/User/publicprojects/MicroServices/stubhub/orders/src/messaging/order-event-publication.ts): TypeScript types and row mappers for publication records.
 - [order-event-publication-repo.ts](file:///c:/Users/User/publicprojects/MicroServices/stubhub/orders/src/messaging/order-event-publication-repo.ts): Database repository (`enqueueOrderEventPublication`, `listDueOrderEventPublications`, `markOrderEventPublished`, `recordOrderEventPublicationFailure`).
 - [outbox-dispatcher.ts](file:///c:/Users/User/publicprojects/MicroServices/stubhub/orders/src/messaging/outbox-dispatcher.ts): Dispatch runner handling batch polling, Redis transport, and retry management.
