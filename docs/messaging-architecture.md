@@ -39,7 +39,7 @@ flowchart TD
 
         subgraph Stage2["STAGE 2: DISPATCH (Publisher Deep Module)"]
             WorkerLoop["Worker Ticker (workers.ts)"]
-            MessagingModule["Orders Messaging Module<br/>(dispatchDueOrderEvents)"]
+            MessagingModule["Orders Messaging Module (index.ts)<br/>(dispatchDueOrderEvents)"]
             OutboxRepo["listDueOrderEventPublications()"]
             XAdd["Redis client.xAdd('orders.events')"]
             MarkPub["markOrderEventPublished()<br/>(published_at = now)"]
@@ -58,7 +58,7 @@ flowchart TD
 
     subgraph TicketsService["Tickets Service"]
         subgraph Stage3["STAGE 3: INGEST (Tickets Ingestion Deep Module)"]
-            ConsumerLoop["Tickets Ingestion Module<br/>(startOrderEventsConsumer)"]
+            ConsumerLoop["order-events-consumer.ts<br/>(startOrderEventsConsumer)"]
             Read["xReadGroup (>) & xAutoClaim"]
             Validate{"Zod schema safeParse()"}
             Poison["xAdd(deadLetterStream) & xAck"]
@@ -104,7 +104,7 @@ When an order reaches a terminal state (`order.completed` or `order.expired`), t
 - **Mechanism:**
   Within `withTransaction(() => { ... })`:
   1. The `orders` table updates to `complete` or `expired`.
-  2. `enqueueOrderFact(...)` (via `@orders/messaging`) runs:
+  2. Callers invoke `enqueueOrderFact(...)` via `orders/src/messaging`:
      ```ts
      enqueueOrderFact({
        orderId,
@@ -113,18 +113,18 @@ When an order reaches a terminal state (`order.completed` or `order.expired`), t
        payload: { ticketId: row.ticket_id },
      });
      ```
-     *Note:* Callers express domain intent (`enqueueOrderFact`); the messaging deep module internally allocates UUIDs, stamps aggregate types and defaults, and inserts into `order_event_publications`.
-  - **Durability Guarantee:** If the database commits, the event cannot be lost. If the process crashes immediately after, the event is safely sitting in `order_event_publications` with `published_at = NULL`.
+     *Deep Module Design:* Business callers express intent (`enqueueOrderFact`); the messaging deep module internally handles UUID generation, payload JSON serialization, aggregate classification, and table staging.
+- **Durability Guarantee:** If the database commits, the event cannot be lost. If the process crashes immediately after, the event is safely sitting in `order_event_publications` with `published_at = NULL`.
 
 ---
 
 ### Stage 2: DISPATCH (Orders Outbox Dispatcher)
 The Orders background worker (`orders/src/workers.ts`) executes `scan()` every interval (default 2 seconds).
 
-- **Files:** `orders/src/messaging/index.ts`, `orders/src/messaging/outbox-dispatcher.ts`, `orders/src/workers.ts`
+- **Files:** `orders/src/messaging/index.ts`, `orders/src/workers.ts`
 - **Mechanism:**
-  1. `workers.ts` simply calls `dispatchDueOrderEvents()`. The caller expresses intent; the messaging module manages Redis connections, lazy reconnection, batching, and error recording.
-  2. Internally, `listDueOrderEventPublications(now, 100)` selects due rows:
+  1. `workers.ts` calls `dispatchDueOrderEvents()` without passing or managing Redis connection handles.
+  2. The messaging module checks for due rows:
      ```sql
      SELECT * FROM order_event_publications
      WHERE published_at IS NULL AND next_attempt_at <= ?
@@ -139,6 +139,7 @@ The Orders background worker (`orders/src/workers.ts`) executes `scan()` every i
        "aggregateType": "order",
        "aggregateId": "order-id",
        "aggregateVersion": 2,
+       "occurredAt": "2026-09-03T12:00:00.000Z",
        "payload": { "ticketId": "ticket-id" }
      }
      ```
@@ -159,13 +160,14 @@ The Orders background worker (`orders/src/workers.ts`) executes `scan()` every i
 ### Stage 3: INGEST (Tickets Consumer Loop)
 The Tickets service continuously listens to the stream via a durable Consumer Group (`tickets-order-convergence`).
 
-- **Files:** `tickets/src/orders/index.ts`, `tickets/src/orders/order-events-consumer.ts`
+- **File:** `tickets/src/orders/order-events-consumer.ts`
 - **Mechanism:**
-  1. **Lifecycle Orchestration:** `tickets/src/index.ts` invokes `startOrderEventsConsumer()`. The consumer manages its own Redis client, consumer group creation, PEL autoclaim scheduling, and graceful shutdown without leaking mechanics to the HTTP server.
+  1. **Lifecycle Orchestration:** `tickets/src/index.ts` invokes `startOrderEventsConsumer()`. The consumer encapsulates its Redis client lifecycle, consumer group setup, autoclaim loops, and graceful shutdown without leaking transport internals to the HTTP server.
   2. **Group Setup:** Automatically registers group `tickets-order-convergence` on stream `orders.events` (`XGROUP CREATE ... MKSTREAM`).
   3. **Pending Recovery (`XAUTOCLAIM`):** Before reading new messages, checks the Pending Entries List (PEL) for messages that other instances started processing but crashed before acknowledging (`claimIdleMs` default 30s).
   4. **New Entries (`XREADGROUP`):** Reads new messages (`>`) in batches with a 1s blocking timeout.
   5. **Schema Validation & Poison Filtering:** Each message is parsed against `orderEventSchema` (Zod).
+     - **Valid Event:** Forwarded to Stage 4.
      - **Poison Message (Malformed):** Written immediately to dead-letter stream `orders.events.dead-letter` and acknowledged (`XACK`) to prevent infinite poison crash loops.
 
 ---
@@ -215,8 +217,8 @@ Both services allow fine-tuning worker and consumer intervals through environmen
 When modifying or debugging messaging code:
 
 1. **Need to publish a new business fact?**
-   Do **not** call Redis directly from HTTP handlers. Call `enqueueOrderFact({ orderId, orderVersion, eventType, payload })` inside your DB transaction (`STAGE 1`). Let `orders/src/messaging` handle envelope structure and outbox dispatching (`STAGE 2`).
+   Do **not** call Redis directly from HTTP handlers. Call `enqueueOrderFact({ orderId, orderVersion, eventType, payload })` inside your DB transaction (`STAGE 1`). Let `orders/src/messaging` handle envelope structure, SQL persistence, and outbox dispatching (`STAGE 2`).
 2. **Need to consume an event in Tickets?**
-   Tickets starts the ingestion deep module with `startOrderEventsConsumer()`. Define event schemas in `tickets/src/tickets/schemas.ts` and apply state convergence inside `applyOrderEventOnce` wrapped by `processed_order_events` (`STAGE 4`).
+   Tickets starts the ingestion consumer with `startOrderEventsConsumer()`. Define event schemas in `tickets/src/tickets/schemas.ts` and apply state convergence inside `applyOrderEventOnce` wrapped by `processed_order_events` (`STAGE 4`).
 3. **What if Redis goes down?**
    Orders will continue committing transactions locally without failing customer requests. Outbox records simply accumulate in SQLite and will back off and auto-dispatch when Redis recovers.

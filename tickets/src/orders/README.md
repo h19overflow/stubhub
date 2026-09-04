@@ -7,11 +7,12 @@ The Tickets service consumes durable business facts (`order.completed`, `order.e
 ---
 
 ## How It Works in Tickets
-1. **Deep Module Boundary (`index.ts`)**
-   - Entry point exposing `startOrderEventsConsumer(options?)` and `processStreamEntry(...)`.
-   - Encapsulates Redis client setup, consumer group registration (`MKSTREAM`, `BUSYGROUP` handling), auto-generated consumer IDs, XAUTOCLAIM schedules, and graceful loop draining.
 
-2. **[STAGE 3: INGEST] `order-events-consumer.ts`**
+1. **Deep Consumer Module (`order-events-consumer.ts`)**
+   - Entry point exposing `startOrderEventsConsumer({ redisUrl? })` and `processStreamEntry(...)`.
+   - Encapsulates Redis client lifecycle, consumer group registration (`MKSTREAM`, `BUSYGROUP` handling), auto-generated consumer IDs, XAUTOCLAIM schedules, batch loops, poison detection, and graceful loop draining.
+
+2. **[STAGE 3: INGEST] Stream Consumption & Poison Dead-Lettering**
    - Connects to Redis and joins consumer group `tickets-order-convergence` on stream `orders.events`.
    - **Pending Recovery (`XAUTOCLAIM`)**: On startup and periodically, reclaims abandoned messages from crashed consumers.
    - **New Messages (`XREADGROUP`)**: Reads incoming entries with a blocking timeout.
@@ -24,6 +25,8 @@ The Tickets service consumes durable business facts (`order.completed`, `order.e
         - `order.completed` $\rightarrow$ transitions `reserved` to `sold`.
         - `order.expired` $\rightarrow$ releases `reserved` back to `available` if `locked_by_order_id` matches.
      3. **Ledger Insert**: Records `(message_id, consumer, event_type, processed_at)` in `processed_order_events`.
+     4. **Transport ACK (`XACK`)**: Sent only after the SQLite transaction successfully commits.
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -60,7 +63,6 @@ sequenceDiagram
 
 ## Key Files
 
-- [index.ts](file:///c:/Users/User/publicprojects/MicroServices/stubhub/tickets/src/orders/index.ts): Deep module facade (`startOrderEventsConsumer`, `processStreamEntry`).
-- [order-events-consumer.ts](file:///c:/Users/User/publicprojects/MicroServices/stubhub/tickets/src/orders/order-events-consumer.ts): Background stream consumer, group registration, claim loop, and poison dead-lettering.
+- [order-events-consumer.ts](file:///c:/Users/User/publicprojects/MicroServices/stubhub/tickets/src/orders/order-events-consumer.ts): Deep consumer module handling group registration, autoclaim recovery, reading, and poison routing.
 - [schemas.ts](file:///c:/Users/User/publicprojects/MicroServices/stubhub/tickets/src/tickets/schemas.ts): Zod schema for incoming stream events (`orderEventSchema`).
 - [ticket-repo.ts](file:///c:/Users/User/publicprojects/MicroServices/stubhub/tickets/src/tickets/ticket-repo.ts): Implements `applyOrderEventOnce` with the duplicate ledger check and Ticket state convergence.
