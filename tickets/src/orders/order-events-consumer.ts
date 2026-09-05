@@ -1,154 +1,66 @@
-import { hostname } from "node:os";
-import { randomUUID } from "node:crypto";
-import { createClient } from "redis";
-import { orderEventSchema } from "../tickets/schemas.js";
-import { ticketsOrderConvergenceConsumer } from "../tickets/ticket.js";
+import { randomBytes } from "node:crypto";
+import nats, { type Stan } from "node-nats-streaming";
+import {
+  OrderCompletedListener,
+  OrderExpiredListener,
+} from "./listeners/index.js";
 import { applyOrderEventOnce } from "../tickets/ticket-repo.js";
 
-const stream = "orders.events";
-const deadLetterStream = "orders.events.dead-letter";
-const group = ticketsOrderConvergenceConsumer;
-const consumer = `${hostname()}-${process.pid}-${randomUUID()}`;
-
-function positiveInteger(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined) return fallback;
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`${name} must be a positive integer`);
-  }
-  return value;
-}
-
-const claimIdleMs = positiveInteger("TICKETS_EVENTS_CLAIM_IDLE_MS", 30_000);
-const claimIntervalMs = positiveInteger("TICKETS_EVENTS_CLAIM_INTERVAL_MS", 10_000);
-const batchSize = positiveInteger("TICKETS_EVENTS_BATCH_SIZE", 50);
-
-type StreamEntry = { id: string; message: Record<string, string> };
-
-type ConsumerClient = {
-  xAdd(key: string, id: string, message: Record<string, string>): Promise<string>;
-  xAck(key: string, group: string, id: string): Promise<number>;
-};
-
-/**
- * Parses and schema-validates a stream entry. Returns null if malformed.
- */
-function parseEvent(entry: StreamEntry) {
-  try {
-    const parsed = orderEventSchema.safeParse(JSON.parse(entry.message.event ?? ""));
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
+export interface OrderEventsConsumerOptions {
+  url?: string;
+  clusterId?: string;
+  clientId?: string;
+  stan?: Stan;
 }
 
 /**
- * [STAGE 3: INGEST & STAGE 4: CONVERGE & ACK]
+ * Starts the durable NATS Streaming event ingestion & convergence listeners.
  *
- * Processes a single stream entry:
- * - Poison detection: malformed entries are routed to DLQ before ACK.
- * - Idempotent convergence: delegates to applyOrderEventOnce in SQLite.
- * - Durable ordering: sends Redis XACK only after DB transaction commits.
- */
-async function processStreamEntry(
-  client: ConsumerClient,
-  entry: StreamEntry,
-): Promise<void> {
-  const event = parseEvent(entry);
-  if (!event) {
-    console.error(`Tickets dead-lettering poison order event ${entry.id}`);
-    await client.xAdd(deadLetterStream, "*", entry.message);
-    await client.xAck(stream, group, entry.id);
-    return;
-  }
-
-  applyOrderEventOnce(event);
-  await client.xAck(stream, group, entry.id);
-}
-
-/**
- * Starts the durable background event ingestion & convergence worker.
+ * Encapsulates client connection, durable listener subscription, queue grouping,
+ * and graceful cleanup behind a single call.
  *
- * All transport setup, consumer groups, PEL autoclaim, stream reading,
- * and graceful draining are hidden behind this single call.
- * Returns an async stop function for clean service shutdown.
+ * @returns An async stop function for clean service shutdown.
  */
-async function startOrderEventsConsumer(
-  options: { redisUrl?: string } = {},
+export async function startOrderEventsConsumer(
+  options: OrderEventsConsumerOptions = {},
 ): Promise<() => Promise<void>> {
-  const url = options.redisUrl ?? process.env.REDIS_URL;
-  if (!url) {
-    throw new Error("REDIS_URL is required");
-  }
+  const clusterId =
+    options.clusterId ?? process.env.NATS_CLUSTER_ID ?? "ticketing";
+  const clientId =
+    options.clientId ??
+    process.env.NATS_CLIENT_ID ??
+    `tickets-consumer-${randomBytes(4).toString("hex")}`;
+  const url = options.url ?? process.env.NATS_URL ?? "http://localhost:4222";
 
-  const client = createClient({ url });
-  client.on("error", (err) => console.error("Tickets Redis error", err));
-  await client.connect();
-
-  try {
-    await client.xGroupCreate(stream, group, "0", { MKSTREAM: true });
-  } catch (err) {
-    const isBusy = err instanceof Error && err.message.includes("BUSYGROUP");
-    if (!isBusy) throw err;
-  }
-
-  let stopping = false;
-  let nextClaimAt = 0;
-
-  async function processBatch(entries: Array<StreamEntry | null>): Promise<void> {
-    for (const entry of entries) {
-      if (entry) await processStreamEntry(client, entry);
-    }
-  }
-
-  async function recoverPending(): Promise<void> {
-    let cursor = "0-0";
-    do {
-      const claimed = await client.xAutoClaim(stream, group, consumer, claimIdleMs, cursor, {
-        COUNT: batchSize,
+  const client: Stan =
+    options.stan ??
+    (await new Promise<Stan>((resolve, reject) => {
+      const stan = nats.connect(clusterId, clientId, { url });
+      stan.on("connect", () => {
+        resolve(stan);
       });
-      await processBatch(claimed.messages);
-      cursor = claimed.nextId;
-    } while (!stopping && cursor !== "0-0");
-  }
+      stan.on("error", (err) => {
+        console.error("Tickets NATS connection error:", err);
+        reject(err);
+      });
+    }));
 
-  async function readNewEntries(): Promise<void> {
-    const batches = await client.xReadGroup(group, consumer, [{ key: stream, id: ">" }], {
-      COUNT: batchSize,
-      BLOCK: 1_000,
-    });
-    for (const batch of batches ?? []) {
-      await processBatch(batch.messages);
-    }
-  }
+  const completedListener = new OrderCompletedListener(client);
+  const expiredListener = new OrderExpiredListener(client);
 
-  async function poll(): Promise<void> {
-    if (Date.now() >= nextClaimAt) {
-      await recoverPending();
-      nextClaimAt = Date.now() + claimIntervalMs;
-    }
-    await readNewEntries();
-  }
+  const subCompleted = completedListener.listen();
+  const subExpired = expiredListener.listen();
 
-  const loop = (async () => {
-    while (!stopping) {
-      try {
-        await poll();
-      } catch (err) {
-        if (stopping) return;
-        console.error("Tickets order event consumption failed", err);
-        await new Promise((r) => setTimeout(r, 1_000));
-      }
-    }
-  })();
-
-  return async () => {
-    stopping = true;
-    await loop;
-    await client.quit();
+  return () => {
+    subCompleted.close();
+    subExpired.close();
+    client.close();
+    return Promise.resolve();
   };
 }
 
-export { startOrderEventsConsumer, processStreamEntry };
-export type { StreamEntry, ConsumerClient };
+export {
+  applyOrderEventOnce as processOrderEvent,
+  OrderCompletedListener,
+  OrderExpiredListener,
+};
