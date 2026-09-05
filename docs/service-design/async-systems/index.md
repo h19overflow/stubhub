@@ -75,6 +75,7 @@ flowchart TD
 8. [`08-durable-subscriptions.md`](08-durable-subscriptions.md)
 9. [`09-strongly-typed-event-pipeline.md`](09-strongly-typed-event-pipeline.md)
 10. [`10-nats-streaming-pivot.md`](10-nats-streaming-pivot.md)
+11. [`deep-architectural-analysis-350-532.md`](deep-architectural-analysis-350-532.md) — Exhaustive syllabus breakdown: AI commodity vs. human architectural judgment matrix.
 
 Keep [`lecture-map-314-450.md`](lecture-map-314-450.md) open beside the external course. It tells you whether to keep, translate, skip, or treat each lecture as a gap.
 
