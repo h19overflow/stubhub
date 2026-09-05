@@ -124,4 +124,3 @@ export {
 export type { AccessTokenClaims, AuthenticatedUser, UserRole };
 
 export * from "./events/index.js";
-
