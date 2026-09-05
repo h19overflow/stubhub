@@ -36,6 +36,10 @@ spec:
                   key: INTERNAL_SERVICE_TOKEN
             - name: REDIS_URL
               value: redis://redis:6379
+            - name: NATS_URL
+              value: http://nats-srv:4222
+            - name: NATS_CLUSTER_ID
+              value: ticketing
             - name: TICKETS_DB_PATH
               value: /data/tickets.sqlite
             - name: TICKETS_UPLOAD_DIR
