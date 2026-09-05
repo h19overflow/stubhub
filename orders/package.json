@@ -17,6 +17,7 @@
   "dependencies": {
     "@stubhub/common": "0.1.0",
     "express": "^5.2.1",
+    "node-nats-streaming": "^0.3.2",
     "redis": "^6.2.1"
   },
   "devDependencies": {
