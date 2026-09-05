@@ -87,7 +87,7 @@ have not been accepted yet.
 - C4 container diagram: `docs/system_design/Arch/c4-container.md`
 - Ticket CQRS decision: `docs/system_design/Arch/ticket-cqrs.md`
 - Broker comparison: `docs/system_design/Arch/event-bus-comparison.md`
-- Service ownership source: `docs/service-boundary.md`
+- Service ownership source: `docs/specifications/service-boundary.md`
 
 The core state vocabulary is:
 

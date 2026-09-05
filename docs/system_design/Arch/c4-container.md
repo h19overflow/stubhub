@@ -1,6 +1,6 @@
 # C4 Level 2 — Container Diagram
 
-**Source of truth:** `../../service-boundary.md`
+**Source of truth:** `../../specifications/service-boundary.md`
 
 This level expands the Ticket Marketplace into four visual layers: the React
 client, backend services, service-owned data, and shared infrastructure.

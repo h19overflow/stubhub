@@ -2,7 +2,7 @@
 
 The Tickets service consumes durable business facts (`order.completed`, `order.expired`) produced by Orders via Redis Streams using the **Idempotent Inbox Ledger** pattern.
 
-> 📖 **Full System Guide**: See [`docs/messaging-architecture.md`](file:///c:/Users/User/publicprojects/MicroServices/stubhub/docs/messaging-architecture.md) for the end-to-end lifecycle between Orders and Tickets.
+> 📖 **Full System Guide**: See [`docs/patterns/messaging-architecture.md`](file:///c:/Users/User/publicprojects/MicroServices/stubhub/docs/patterns/messaging-architecture.md) for the end-to-end lifecycle between Orders and Tickets.
 
 ---
 

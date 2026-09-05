@@ -2,7 +2,7 @@
 
 The Orders service produces durable business facts (`order.completed`, `order.expired`) using the **Transactional Outbox** pattern.
 
-> 📖 **Full System Guide**: See [`docs/messaging-architecture.md`](file:///c:/Users/User/publicprojects/MicroServices/stubhub/docs/messaging-architecture.md) for the end-to-end lifecycle between Orders and Tickets.
+> 📖 **Full System Guide**: See [`docs/patterns/messaging-architecture.md`](file:///c:/Users/User/publicprojects/MicroServices/stubhub/docs/patterns/messaging-architecture.md) for the end-to-end lifecycle between Orders and Tickets.
 
 ---
 

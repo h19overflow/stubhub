@@ -1,6 +1,6 @@
 # C4 Level 1 — System Context
 
-**Source of truth:** `../../service-boundary.md`
+**Source of truth:** `../../specifications/service-boundary.md`
 
 This level treats the entire ticket marketplace as one software system. The
 React client and backend services are intentionally hidden until the container

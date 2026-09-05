@@ -6,7 +6,7 @@ The frontend is a deliberately thin chain:
 
 A page chooses a screen, a feature component handles user-facing UI, a hook coordinates React state and timing, and an API client owns request details and response parsing. The browser proposes values; Identity, Tickets, and Orders validate and decide.
 
-This guide describes the current implementation for a learner who knows some Python but is new to Next.js, React, and TypeScript. It focuses on one representative ticket-to-order path rather than listing every changed line. The companion [Order data capture pattern](order-data-capture-pattern.md) follows the same data across service boundaries.
+This guide describes the current implementation for a learner who knows some Python but is new to Next.js, React, and TypeScript. It focuses on one representative ticket-to-order path rather than listing every changed line. The companion [Order data capture pattern](../patterns/order-data-capture-pattern.md) follows the same data across service boundaries.
 
 ## 1. The layers
 

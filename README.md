@@ -82,11 +82,12 @@ Individual development commands are available as `npm run dev:client`, `dev:iden
 
 ## Learning documentation
 
+- [Documentation Hub](docs/README.md)
 - [Service-design course](docs/service-design/index.md)
 - [System-design journal](docs/system_design/index.md)
-- [Commerce service-boundary baseline](docs/service-boundary.md)
+- [Commerce service-boundary baseline](docs/specifications/service-boundary.md)
 - [Service-design growth gaps](docs/goals/service-design-growth-gaps.md)
-- [Order data capture pattern](docs/order-data-capture-pattern.md)
+- [Order data capture pattern](docs/patterns/order-data-capture-pattern.md)
 
 ## Project status
 

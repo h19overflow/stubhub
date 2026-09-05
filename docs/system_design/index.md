@@ -7,7 +7,7 @@
 - Complete one journey at a time.
 - Record decisions only after reasoning through them.
 - Use questions and nudges rather than supplied answers.
-- Keep ownership consistent with `../service-boundary.md`.
+- Keep ownership consistent with `../specifications/service-boundary.md`.
 - Do not define events until the journeys and state transitions are clear.
 
 ## Step 1 — Business journeys

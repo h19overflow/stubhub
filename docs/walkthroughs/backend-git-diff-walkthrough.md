@@ -174,7 +174,7 @@ The recurring implementation pattern is:
 - **Service boundary:** `orders/src/tickets-client.ts` — the only Orders-to-Tickets client and its status mapping.
 - **Payment:** `orders/src/http/routes/submit-payment.ts` — HTTP input/output mapping; `orders/src/payments/payment-workflow.ts` — validation, eligibility, idempotency, reservation verification, and provider coordination; `orders/src/payments/payment-attempt-repo.ts` and `local-provider.ts` — durable attempts and the simulated provider.
 - **Workers and events:** `orders/src/workers.ts`, `orders/src/messaging/order-event-publication-repo.ts`, and `tickets/src/orders/order-events-consumer.ts`.
-- **Durable contracts:** `orders/migrations/005_create_purchase_operations.sql`, `006_rebuild_orders.sql`, `007_create_local_provider_payments.sql`, [`010_rename_outbox_messages.sql`](../orders/migrations/010_rename_outbox_messages.sql), and [`003_rename_inbox_messages.sql`](../tickets/migrations/003_rename_inbox_messages.sql).
+- **Durable contracts:** `orders/migrations/005_create_purchase_operations.sql`, `006_rebuild_orders.sql`, `007_create_local_provider_payments.sql`, [`010_rename_outbox_messages.sql`](../../orders/migrations/010_rename_outbox_messages.sql), and [`003_rename_inbox_messages.sql`](../../tickets/migrations/003_rename_inbox_messages.sql).
 
 ## Caveats in the current implementation
 
