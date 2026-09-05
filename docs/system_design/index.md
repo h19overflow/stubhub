@@ -76,6 +76,8 @@ than by the available technology?
 Define the event contracts discovered from committed state transitions. Record
 ownership, trigger, minimum payload, consumers, duplicate behavior, out-of-order
 behavior, and versioning. Event names come after the facts are understood.
+See [`event_contracts_and_deep_modules.md`](event_contracts_and_deep_modules.md)
+for architectural rules on typed contracts, deep modules, and publication safety.
 
 Completion question: can every consumer safely receive the same fact more than
 once or after a newer fact?

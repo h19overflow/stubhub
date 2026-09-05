@@ -11,6 +11,8 @@ The commerce slice has exactly two cross-service committed facts:
 
 Orders publishes them only after its local state change commits. Tickets consumes them to converge its separately owned Ticket state. Reservation winning, listing changes, payment attempts, and provider outcomes are not events: they are immediate decisions or Orders-internal work with no accepted external consumer.
 
+For foundational architectural principles governing typed event contracts, deep module boundaries, and publication safety across services, see [`event_contracts_and_deep_modules.md`](event_contracts_and_deep_modules.md).
+
 ## Shared envelope
 
 Each stream entry contains one field named `event`. Its value is one JSON object with this envelope:
