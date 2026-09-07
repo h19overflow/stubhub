@@ -1,10 +1,7 @@
-export type LoadState<T> =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "ready"; data: T };
+import { formatErrorMessage, type LoadState } from "../../lib/load-state";
 
-export function ticketErrorMessage(error: unknown) {
-  return error instanceof Error
-    ? error.message
-    : "The service is temporarily unavailable";
+export type { LoadState };
+
+export function ticketErrorMessage(error: unknown): string {
+  return formatErrorMessage(error);
 }

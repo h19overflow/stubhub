@@ -15,23 +15,16 @@ if (retryCapMs < retryBaseMs) {
   throw new Error("ORDERS_RETRY_CAP_MS must be at least ORDERS_RETRY_BASE_MS");
 }
 
+import { computeRetryDelayMs } from "@stubhub/common";
+
 /**
- * Computes capped exponential backoff from a persisted retry count and adds
- * uniform jitter between half and all of the capped delay. The randomization
- * desynchronizes workers retrying the same failure; invalid counts throw.
+ * Computes capped exponential backoff with uniform jitter for Orders outbox retries.
  */
 function retryDelayMs(persistedRetryCount: number): number {
-  if (!Number.isSafeInteger(persistedRetryCount) || persistedRetryCount < 0) {
-    throw new RangeError("Persisted retry count must be a non-negative safe integer");
-  }
-
-  const exponent = Math.min(
-    persistedRetryCount,
-    Math.ceil(Math.log2(retryCapMs / retryBaseMs)),
-  );
-  const ceiling = Math.min(retryCapMs, retryBaseMs * 2 ** exponent);
-  const floor = Math.ceil(ceiling / 2);
-  return floor + Math.floor(Math.random() * (ceiling - floor + 1));
+  return computeRetryDelayMs(persistedRetryCount, {
+    baseMs: retryBaseMs,
+    capMs: retryCapMs,
+  });
 }
 
 export { retryDelayMs };

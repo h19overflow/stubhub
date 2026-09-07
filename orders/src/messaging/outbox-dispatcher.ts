@@ -39,18 +39,12 @@ export async function dispatchOutboxPublication(
       correlationId: pub.correlationId ?? undefined,
     };
 
-    if (
-      pub.eventType === Subjects.OrderCompleted ||
-      pub.eventType === "order.completed"
-    ) {
+    if (pub.eventType === Subjects.OrderCompleted) {
       // pi-lens-ignore: ts:2554
       const publisher = new OrderCompletedPublisher(client);
       // pi-lens-ignore: ts:2339
       await publisher.publish(eventData);
-    } else if (
-      pub.eventType === Subjects.OrderExpired ||
-      pub.eventType === "order.expired"
-    ) {
+    } else if (pub.eventType === Subjects.OrderExpired) {
       // pi-lens-ignore: ts:2554
       const publisher = new OrderExpiredPublisher(client);
       // pi-lens-ignore: ts:2339
@@ -76,22 +70,23 @@ export async function dispatchOutboxPublication(
  * Polls due outbox records and dispatches them via NATS Streaming.
  * Lazily connects to NATS and handles transient failures.
  */
+export type DispatchDueOrderEventsOptions = {
+  limit?: number;
+  stan?: Stan;
+};
+
 export async function dispatchDueOrderEvents(
-  limitOrStan?: number | Stan,
-  maybeLimit?: number,
+  optionsOrLimit?: number | DispatchDueOrderEventsOptions,
 ): Promise<number> {
   let stan: Stan | undefined;
   let limit = 100;
 
-  if (typeof limitOrStan === "number") {
-    limit = limitOrStan;
-  } else if (limitOrStan) {
-    stan = limitOrStan;
-    if (typeof maybeLimit === "number") {
-      limit = maybeLimit;
-    }
+  if (typeof optionsOrLimit === "number") {
+    limit = optionsOrLimit;
+  } else if (optionsOrLimit) {
+    limit = optionsOrLimit.limit ?? 100;
+    stan = optionsOrLimit.stan;
   }
-
   const now = Date.now();
   const publications = claimDueOrderEventPublications(defaultWorkerId, now, limit);
   if (publications.length === 0) return 0;

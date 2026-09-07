@@ -5,7 +5,4 @@
  * 503 dependency_unavailable); Express catches and serializes {error,code} with
  * the status. Keeps business errors explicit vs 500 unexpected throws.
  */
-class AppError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) { super(message); }
-}
-export { AppError };
+export { AppError, HttpError } from "@stubhub/common";

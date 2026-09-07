@@ -3,12 +3,12 @@
  * Acts as the single source of truth for channel names.
  */
 export enum Subjects {
- TicketCreated = "ticket:created",
- TicketUpdated = "ticket:updated",
- OrderCreated = "order:created",
- OrderCancelled = "order:cancelled",
- OrderCompleted = "order:completed",
- OrderExpired = "order:expired",
+  TicketCreated = "ticket.created",
+  TicketUpdated = "ticket.updated",
+  OrderCreated = "order.created",
+  OrderCancelled = "order.cancelled",
+  OrderCompleted = "order.completed",
+  OrderExpired = "order.expired",
 }
 
 /**

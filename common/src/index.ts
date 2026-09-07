@@ -124,3 +124,6 @@ export {
 export type { AccessTokenClaims, AuthenticatedUser, UserRole };
 
 export * from "./events/index.js";
+export * from "./sqlite/index.js";
+export * from "./errors/index.js";
+export * from "./retry/index.js";

@@ -21,16 +21,4 @@ export function AppFrame({ children }: { children: ReactNode }) {
   );
 }
 
-export function formatMoney(cents: number, currency: Currency) {
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency,
-  }).format(cents / 100);
-}
-
-export function formatDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
+export { formatDate, formatMoney } from "../../lib/format";

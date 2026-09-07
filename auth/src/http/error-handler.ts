@@ -6,15 +6,7 @@
  * Must be last middleware (app.ts) and respects headersSent.
  */
 import type { ErrorRequestHandler } from "express";
-
-// A route throws HttpError for an expected failure whose status and message are
-// safe to return to the client, for example: throw new HttpError(404, "Not found").
-class HttpError extends Error {
-  constructor(readonly status: number, message: string) {
-    // Initialize the built-in Error fields, including `message` and the stack trace.
-    super(message);
-  }
-}
+import { HttpError } from "@stubhub/common";
 
 // Express recognizes error-handling middleware by its four parameters. Express 5
 // forwards errors thrown by synchronous or async route handlers to this function.

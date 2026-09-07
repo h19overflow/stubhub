@@ -64,12 +64,13 @@ export type PaymentAttempt = {
   updatedAt: string;
 };
 
-function object(value: unknown): Record<string, unknown> {
+export function ensureObject(value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error("Invalid service response");
   }
   return value as Record<string, unknown>;
 }
+const object = ensureObject;
 
 function string(value: unknown) {
   if (typeof value !== "string") throw new Error("Invalid service response");

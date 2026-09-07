@@ -1,16 +1,12 @@
 import {
+  ensureObject,
   parseOrder,
   parsePaymentAttempt,
   type Order,
 } from "../commerce-types";
 import type { PaymentResult, StartOrderResult } from "./types";
 
-function object(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("Invalid service response");
-  }
-  return value as Record<string, unknown>;
-}
+const object = ensureObject;
 
 export function parseOrderList(value: unknown): Order[] {
   const body = object(value);

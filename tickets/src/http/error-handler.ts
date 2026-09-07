@@ -7,16 +7,7 @@
  */
 import type { ErrorRequestHandler } from "express";
 import multer from "multer";
-
-class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-    readonly code: string,
-  ) {
-    super(message);
-  }
-}
+import { HttpError } from "@stubhub/common";
 
 const errorHandler: ErrorRequestHandler = (error, request, response, next) => {
   if (response.headersSent) {

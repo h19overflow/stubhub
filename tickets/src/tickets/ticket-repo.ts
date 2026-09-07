@@ -1,4 +1,4 @@
-import { database } from "../database.js";
+import { database, withTransaction } from "../database.js";
 import { ticketsOrderConvergenceConsumer, toTicket } from "./ticket.js";
 import type {
   ConvergenceOutcome,
@@ -89,7 +89,6 @@ function readTicketByOwnerKey(
  * forgetting COMMIT. Errors are caught by callers ROLLBACK.
  */
 function commit<T>(result: T): T {
-  database.exec("COMMIT");
   return result;
 }
 
@@ -204,8 +203,7 @@ function availablePredicates(filters: TicketFilters): Predicate {
  * -> replayed, else conflict. All branches COMMIT. ROLLBACK on error.
  */
 function createTicket(input: CreateTicketInput): CreateTicketResult {
-  database.exec("BEGIN IMMEDIATE");
-  try {
+  return withTransaction(() => {
     const now = Date.now();
     const inserted = database
       .prepare(
@@ -261,10 +259,7 @@ function createTicket(input: CreateTicketInput): CreateTicketResult {
     }
 
     return commit({ outcome: "conflict" });
-  } catch (error) {
-    database.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
 
 /**
@@ -280,8 +275,7 @@ function updateTicketPrice(
   ticketId: string,
   priceCents: number,
 ): UpdateTicketPriceResult {
-  database.exec("BEGIN IMMEDIATE");
-  try {
+  return withTransaction(() => {
     const updated = database
       .prepare(
         `UPDATE tickets
@@ -306,10 +300,7 @@ function updateTicketPrice(
       return commit({ outcome: "not_found" });
     }
     return commit({ outcome: "unavailable" });
-  } catch (error) {
-    database.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
 
 /**
@@ -404,8 +395,7 @@ function reserveTicket(
   orderId: string,
   expiresAt: number,
 ): ReserveTicketResult {
-  database.exec("BEGIN IMMEDIATE");
-  try {
+  return withTransaction(() => {
     const row = readTicketById(ticketId);
     if (!row) {
       return commit({ outcome: "not_found" });
@@ -459,10 +449,7 @@ function reserveTicket(
       outcome: "reserved",
       reservation: toReservation(reserved),
     });
-  } catch (error) {
-    database.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
 
 /**
@@ -500,8 +487,7 @@ function releaseReservation(
   ticketId: string,
   orderId: string,
 ): ReleaseReservationOutcome {
-  database.exec("BEGIN IMMEDIATE");
-  try {
+  return withTransaction(() => {
     const row = readTicketById(ticketId);
     if (!row) {
       return commit("missing");
@@ -532,10 +518,7 @@ function releaseReservation(
       throw new Error("Release guard changed unexpectedly");
     }
     return commit("released");
-  } catch (error) {
-    database.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
 
 /**
@@ -620,8 +603,7 @@ function applyOrderEventOnce(
   event: OrderEvent,
 ): { duplicate: boolean; outcome?: ConvergenceOutcome } {
   const consumer = ticketsOrderConvergenceConsumer;
-  database.exec("BEGIN IMMEDIATE");
-  try {
+  return withTransaction(() => {
     const duplicate = database
       .prepare(
         `SELECT 1
@@ -667,10 +649,7 @@ function applyOrderEventOnce(
         Date.now(),
       );
     return commit({ duplicate: false, outcome });
-  } catch (error) {
-    database.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
 
 export {
