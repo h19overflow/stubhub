@@ -98,7 +98,6 @@ flowchart TD
 | **`tickets`** | `3002` | Ticket inventory, price updates, authoritative reservation locks, release. | `tickets.db` (`lockedByOrderId` guard) |
 | **`orders`** | `3003` | Purchase intent, locked price snapshots, expiration timers, outbox staging. | `orders.db` (`BEGIN IMMEDIATE` outbox) |
 | **`moderation`** | `3004` | Post-sale seller reporting, dispute evidence, admin resolution. | `moderation.db` |
-| **`event-bus`** | `6379` | Durable event distribution, consumer groups, pending stream recovery. | Redis Streams / NATS Streaming |
 
 ---
 

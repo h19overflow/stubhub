@@ -6,7 +6,6 @@
     "common",
     "auth",
     "tickets",
-    "event-bus",
     "orders",
     "moderation"
   ],

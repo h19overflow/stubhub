@@ -22,7 +22,6 @@ export {
 export {
   enqueueOrderFact,
   claimDueOrderEventPublications,
-  listDueOrderEventPublications,
   markOrderEventPublished,
   recordOrderEventPublicationFailure,
 } from "./outbox-repo.js";

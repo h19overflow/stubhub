@@ -146,25 +146,6 @@ export function claimDueOrderEventPublications(
   });
 }
 
-/** Reads due rows from the database without claiming. */
-export function listDueOrderEventPublications(
-  now: number,
-  limit: number,
-): OrderEventPublication[] {
-  // SAFETY: query columns match orderEventPublicationColumns and OrderEventPublicationRow shape
-  const rows = database
-    .prepare(`
-    SELECT ${orderEventPublicationColumns}
-    FROM order_event_publications
-    WHERE published_at IS NULL
-      AND next_attempt_at <= ?
-      AND (locked_until IS NULL OR locked_until <= ?)
-    ORDER BY next_attempt_at, created_at, id
-    LIMIT ?
-  `)
-    .all(now, now, limit) as unknown as OrderEventPublicationRow[];
-  return rows.map(toPublication);
-}
 
 /** Marks a row successfully published. */
 export function markOrderEventPublished(id: string): boolean {
