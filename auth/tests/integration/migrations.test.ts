@@ -10,7 +10,9 @@ import { DatabaseSync } from "node:sqlite";
 const temporaryPaths: string[] = [];
 
 function temporaryDirectory(): string {
-  const directory = mkdtempSync(resolve(tmpdir(), "identity-migrations-"));
+  const base = resolve(".tmp");
+  mkdirSync(base, { recursive: true });
+  const directory = mkdtempSync(resolve(base, "identity-migrations-"));
   temporaryPaths.push(directory);
   return directory;
 }
