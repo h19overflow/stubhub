@@ -12,5 +12,6 @@ export interface TicketCreatedEvent {
     userId?: string;
     version?: number;
     orderId?: string;
+    correlationId?: string;
   };
 }

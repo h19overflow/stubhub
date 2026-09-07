@@ -11,6 +11,7 @@ export type EnqueueOrderFactInput = {
   eventType: string;
   eventVersion?: number;
   payload: OrderFactPayload;
+  correlationId?: string;
 };
 
 /** Application representation of an outbox publication */
@@ -28,6 +29,9 @@ export type OrderEventPublication = {
   attemptCount: number;
   nextAttemptAt: string;
   lastError: string | null;
+  lockedBy?: string | null;
+  lockedUntil?: string | null;
+  correlationId?: string | null;
 };
 
 export type OrderEventPublicationRow = {
@@ -44,6 +48,9 @@ export type OrderEventPublicationRow = {
   attempt_count: number;
   next_attempt_at: number;
   last_error: string | null;
+  locked_by: string | null;
+  locked_until: number | null;
+  correlation_id: string | null;
 };
 
 /** Backwards-compatible client type alias */

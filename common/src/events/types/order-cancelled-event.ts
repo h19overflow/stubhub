@@ -8,6 +8,7 @@ export interface OrderCancelledEvent {
   data: {
     id: string;
     version: number;
+    correlationId?: string;
     ticket: {
       id: string;
     };

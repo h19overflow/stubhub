@@ -48,14 +48,16 @@ export async function startOrderEventsConsumer(
   const completedListener = new OrderCompletedListener(client);
   const expiredListener = new OrderExpiredListener(client);
 
-  const subCompleted = completedListener.listen();
-  const subExpired = expiredListener.listen();
+  completedListener.listen();
+  expiredListener.listen();
 
-  return () => {
-    subCompleted.close();
-    subExpired.close();
+  return async () => {
+    // Close subscriptions and await in-flight message handlers up to 10s
+    await Promise.allSettled([
+      completedListener.close(10_000),
+      expiredListener.close(10_000),
+    ]);
     client.close();
-    return Promise.resolve();
   };
 }
 

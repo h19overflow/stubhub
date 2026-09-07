@@ -1,6 +1,6 @@
 # Event-Driven Messaging Architecture: Orders & Tickets
 
-This guide explains how asynchronous messaging works between **Orders** and **Tickets**, detailing the four-stage lifecycle pipeline, the durability patterns used (Transactional Outbox + Redis Streams + Idempotent Inbox), and how to trace an event from inception to convergence.
+This guide explains how asynchronous messaging works between **Orders** and **Tickets**, detailing the four-stage lifecycle pipeline, the durability patterns used (Transactional Outbox with Worker Lease Claim + NATS Streaming + Idempotent Inbox Ledger), poison-pill protection, graceful shutdown draining, and distributed tracing.
 
 ---
 
@@ -12,13 +12,16 @@ In a microservices architecture, services must communicate state changes without
 3. Losing events during unexpected server crashes.
 4. Causing duplicate state changes if an event is delivered more than once (at-least-once delivery).
 
-To solve this, our system implements three core architectural patterns:
+To solve this, our system implements four core architectural patterns:
 
 | Pattern | Where Used | Problem It Solves |
 | :--- | :--- | :--- |
-| **Transactional Outbox** | Orders Service | Guarantees an event is saved in the local DB within the *exact same transaction* as the order status update. If the DB commits, the event fact is durably staged. |
-| **Redis Streams Transport** | Event Bus | Provides durable, cursor-backed, group-acknowledged streaming transport (`orders.events`). Unlike Redis Pub/Sub, disconnected consumers do not lose messages. |
+| **Transactional Outbox with Lease Claim** | Orders Service | Guarantees an event is saved in the local DB within the *exact same transaction* as the order status update. Worker lease claiming (`claimDueOrderEventPublications`) prevents multi-replica worker races. |
+| **Strongly-Typed NATS Streaming** | Broker Transport | Provides durable, channel-backed, queue-grouped streaming transport (`order:completed`, `order:expired`) with bounded generics in `@stubhub/common`. |
+| **Poison-Pill & Retry Protection** | Consumer Framework | In `BaseListener`, malformed JSON or unhandled processing errors that exceed `maxRetries` are safely acknowledged via `onPoisonMessage` to prevent queue deadlock. |
 | **Idempotent Inbox Ledger** | Tickets Service | Tracks consumed message IDs in `processed_order_events` table before applying changes. Ensures safe at-least-once message delivery without double-processing. |
+
+> ℹ️ **Historical Note**: Early design prototypes explored raw Redis Streams (`xAdd`, `xReadGroup`). The architecture subsequently pivoted to strongly-typed NATS Streaming contracts in `@stubhub/common` to enforce compile-time payload safety and channel typing across all services.
 
 ---
 
@@ -32,7 +35,7 @@ flowchart TD
         subgraph Stage1["STAGE 1: STAGE (Transactional Outbox)"]
             TX["Orders SQLite Transaction"]
             StateChange["Update orders status<br/>(complete / expired)"]
-            InsertOutbox["INSERT INTO order_event_publications<br/>(published_at = NULL)"]
+            InsertOutbox["INSERT INTO order_event_publications<br/>(published_at = NULL, correlation_id)"]
             TX --> StateChange
             TX --> InsertOutbox
         end
@@ -40,31 +43,32 @@ flowchart TD
         subgraph Stage2["STAGE 2: DISPATCH (Publisher Deep Module)"]
             WorkerLoop["Worker Ticker (workers.ts)"]
             MessagingModule["Orders Messaging Module (index.ts)<br/>(dispatchDueOrderEvents)"]
-            OutboxRepo["listDueOrderEventPublications()"]
-            XAdd["Redis client.xAdd('orders.events')"]
-            MarkPub["markOrderEventPublished()<br/>(published_at = now)"]
+            ClaimOutbox["claimDueOrderEventPublications()<br/>(Worker Lease Lock)"]
+            STANPub["Publisher.publish(subject, data)"]
+            MarkPub["markOrderEventPublished()<br/>(published_at = now, clear lease)"]
             WorkerLoop --> MessagingModule
-            MessagingModule --> OutboxRepo
-            OutboxRepo --> XAdd
-            XAdd --> MarkPub
+            MessagingModule --> ClaimOutbox
+            ClaimOutbox --> STANPub
+            STANPub --> MarkPub
         end
     end
 
-    subgraph RedisBroker["Redis Streams Event Bus"]
-        Stream["orders.events Stream"]
-        DLQ["orders.events.dead-letter DLQ"]
-        PEL["Pending Entries List (PEL)"]
+    subgraph NATSBroker["NATS Streaming Event Bus (Cluster: ticketing)"]
+        StreamCompleted["Subject: order:completed<br/>QueueGroup: tickets-order-convergence"]
+        StreamExpired["Subject: order:expired<br/>QueueGroup: tickets-order-convergence"]
     end
 
     subgraph TicketsService["Tickets Service"]
         subgraph Stage3["STAGE 3: INGEST (Tickets Ingestion Deep Module)"]
             ConsumerLoop["order-events-consumer.ts<br/>(startOrderEventsConsumer)"]
-            Read["xReadGroup (>) & xAutoClaim"]
-            Validate{"Zod schema safeParse()"}
-            Poison["xAdd(deadLetterStream) & xAck"]
-            ConsumerLoop --> Read
-            Read --> Validate
-            Validate -- "Invalid / Poison" --> Poison
+            ListenerSub["OrderCompletedListener / OrderExpiredListener"]
+            InFlightTrack["BaseListener.inFlight Set & Drain"]
+            Validate{"JSON Parse & maxRetries check"}
+            Poison["BaseListener.onPoisonMessage()<br/>(Log + msg.ack)"]
+            ConsumerLoop --> ListenerSub
+            ListenerSub --> InFlightTrack
+            InFlightTrack --> Validate
+            Validate -- "Malformed / Max Retries Exceeded" --> Poison
         end
 
         subgraph Stage4["STAGE 4: CONVERGE & ACK (Inbox Ledger)"]
@@ -72,23 +76,21 @@ flowchart TD
             CheckLedger{"Check processed_order_events"}
             Converge["Apply Ticket transition<br/>(sold / available)"]
             RecordLedger["INSERT processed_order_events"]
-            XAck["client.xAck('orders.events')"]
+            StanAck["msg.ack()"]
 
-            Validate -- "Valid OrderEvent" --> TicketsTX
+            Validate -- "Valid Message" --> TicketsTX
             TicketsTX --> CheckLedger
             CheckLedger -- "New" --> Converge
             CheckLedger -- "Duplicate" --> TicketsTX
             Converge --> RecordLedger
-            TicketsTX -.->|"After DB Commit"| XAck
+            TicketsTX -.->|"After DB Commit"| StanAck
         end
     end
 
-    InsertOutbox -.-> OutboxRepo
-    XAdd --> Stream
-    Poison --> DLQ
-    Stream --> Read
-    PEL --> Read
-    XAck --> Stream
+    InsertOutbox -.-> ClaimOutbox
+    STANPub --> StreamCompleted & StreamExpired
+    StreamCompleted --> ListenerSub
+    StreamExpired --> ListenerSub
 ```
 
 ---
@@ -110,72 +112,70 @@ When an order reaches a terminal state (`order.completed` or `order.expired`), t
        orderId,
        orderVersion: row.version,
        eventType,
+       correlationId: optionalCorrelationId,
        payload: { ticketId: row.ticket_id },
      });
      ```
-     *Deep Module Design:* Business callers express intent (`enqueueOrderFact`); the messaging deep module internally handles UUID generation, payload JSON serialization, aggregate classification, and table staging.
-- **Durability Guarantee:** If the database commits, the event cannot be lost. If the process crashes immediately after, the event is safely sitting in `order_event_publications` with `published_at = NULL`.
+- **Durability Guarantee:** If the database commits, the event cannot be lost. If the process crashes immediately after, the event is safely stored in `order_event_publications` with `published_at = NULL`.
 
 ---
 
-### Stage 2: DISPATCH (Orders Outbox Dispatcher)
-The Orders background worker (`orders/src/workers.ts`) executes `scan()` every interval (default 2 seconds).
+### Stage 2: DISPATCH (Orders Outbox Dispatcher with Lease Claim)
+The Orders background worker (`orders/src/workers.ts`) executes `scan()` periodically (default 2 seconds).
 
-- **Files:** `orders/src/messaging/index.ts`, `orders/src/workers.ts`
+- **Files:** `orders/src/messaging/outbox-dispatcher.ts`, `orders/src/messaging/outbox-repo.ts`
 - **Mechanism:**
-  1. `workers.ts` calls `dispatchDueOrderEvents()` without passing or managing Redis connection handles.
-  2. The messaging module checks for due rows:
+  1. `workers.ts` calls `dispatchDueOrderEvents()`.
+  2. The messaging module atomically claims due rows with a worker lease:
      ```sql
      SELECT * FROM order_event_publications
-     WHERE published_at IS NULL AND next_attempt_at <= ?
+     WHERE published_at IS NULL
+       AND next_attempt_at <= ?
+       AND (locked_until IS NULL OR locked_until <= ?)
      ORDER BY next_attempt_at, created_at, id LIMIT ?
      ```
-  3. For each row, formats the envelope:
-     ```json
-     {
-       "messageId": "UUID",
-       "eventType": "order.completed",
-       "eventVersion": 1,
-       "aggregateType": "order",
-       "aggregateId": "order-id",
-       "aggregateVersion": 2,
-       "occurredAt": "2026-09-03T12:00:00.000Z",
-       "payload": { "ticketId": "ticket-id" }
-     }
-     ```
-  4. Appends to Redis Stream:
+     Sets `locked_by = workerId` and `locked_until = now + 30000` to prevent competing worker pods from duplicating dispatches.
+  3. Formats the strongly-typed event data:
      ```ts
-     await redis.xAdd("orders.events", "*", { event: JSON.stringify(envelope) });
+     const eventData = {
+       id: pub.aggregateId,
+       version: pub.aggregateVersion,
+       messageId: pub.id,
+       ticketId,
+       ticket: { id: ticketId },
+       occurredAt: pub.createdAt,
+       correlationId: pub.correlationId ?? undefined,
+     };
      ```
-  5. Marks published:
+  4. Publishes via typed publisher (`OrderCompletedPublisher` or `OrderExpiredPublisher`).
+  5. On success:
      ```sql
      UPDATE order_event_publications
-     SET published_at = ?, attempt_count = attempt_count + 1
+     SET published_at = ?, attempt_count = attempt_count + 1,
+         locked_by = NULL, locked_until = NULL, last_error = NULL
      WHERE id = ? AND published_at IS NULL
      ```
-- **Failure Handling & Retries:** If Redis is down or `xAdd` fails, `recordOrderEventPublicationFailure` increments `attempt_count` and calculates an exponential backoff stored in `next_attempt_at`.
+  6. On failure: `recordOrderEventPublicationFailure` clears the lock and applies exponential backoff stored in `next_attempt_at`.
 
 ---
 
-### Stage 3: INGEST (Tickets Consumer Loop)
-The Tickets service continuously listens to the stream via a durable Consumer Group (`tickets-order-convergence`).
+### Stage 3: INGEST (Tickets Consumer Loop & Resilience)
+The Tickets service continuously listens to the stream via a durable Queue Group (`tickets-order-convergence`).
 
-- **File:** `tickets/src/orders/order-events-consumer.ts`
+- **File:** `tickets/src/orders/order-events-consumer.ts`, `common/src/events/base-listener.ts`
 - **Mechanism:**
-  1. **Lifecycle Orchestration:** `tickets/src/index.ts` invokes `startOrderEventsConsumer()`. The consumer encapsulates its Redis client lifecycle, consumer group setup, autoclaim loops, and graceful shutdown without leaking transport internals to the HTTP server.
-  2. **Group Setup:** Automatically registers group `tickets-order-convergence` on stream `orders.events` (`XGROUP CREATE ... MKSTREAM`).
-  3. **Pending Recovery (`XAUTOCLAIM`):** Before reading new messages, checks the Pending Entries List (PEL) for messages that other instances started processing but crashed before acknowledging (`claimIdleMs` default 30s).
-  4. **New Entries (`XREADGROUP`):** Reads new messages (`>`) in batches with a 1s blocking timeout.
-  5. **Schema Validation & Poison Filtering:** Each message is parsed against `orderEventSchema` (Zod).
-     - **Valid Event:** Forwarded to Stage 4.
-     - **Poison Message (Malformed):** Written immediately to dead-letter stream `orders.events.dead-letter` and acknowledged (`XACK`) to prevent infinite poison crash loops.
+  1. **Lifecycle Orchestration:** `tickets/src/index.ts` invokes `startOrderEventsConsumer()`.
+  2. **In-Flight Tracking & Draining:** `BaseListener` tracks all active message promises in an `inFlight` set. On shutdown, `close()` stops incoming subscription messages and awaits all in-flight handlers up to 10s before closing the NATS connection.
+  3. **Poison-Pill Protection:**
+     - Malformed JSON payloads immediately trigger `onPoisonMessage` which logs and calls `msg.ack()`.
+     - Processing exceptions track attempt count per message sequence. After `maxRetries` (default 5), the message is abandoned and acknowledged to prevent subscription deadlocks.
 
 ---
 
 ### Stage 4: CONVERGE & ACK (Tickets Inbox Ledger & Convergence)
 The consumer hands the validated event to the repository to safely apply business state changes.
 
-- **Files:** `tickets/src/tickets/ticket-repo.ts::applyOrderEventOnce`, `tickets/src/orders/order-events-consumer.ts`
+- **Files:** `tickets/src/tickets/ticket-repo.ts::applyOrderEventOnce`, `tickets/src/orders/listeners/`
 - **Mechanism:**
   In a single `BEGIN IMMEDIATE` database transaction:
   1. **Duplicate Check (Inbox Ledger):**
@@ -192,33 +192,16 @@ The consumer hands the validated event to the repository to safely apply busines
      INSERT INTO processed_order_events (message_id, consumer, event_type, processed_at)
      VALUES (?, 'tickets-order-convergence', ?, ?)
      ```
-  4. **Transport Acknowledgment (`XACK`):**
-     Only *after* the SQLite transaction successfully commits, `client.xAck("orders.events", group, entry.id)` is called.
-- **Crash Safety:** If the service crashes right before `XACK`, Redis redelivers the message on recovery. On redelivery, Step 1 catches the duplicate in `processed_order_events`, skips domain mutation, and safely calls `XACK`.
+  4. **Transport Acknowledgment (`msg.ack()`):**
+     Only *after* the SQLite transaction successfully commits, `msg.ack()` is called.
+- **Crash Safety:** If the service crashes right before `msg.ack()`, NATS redelivers the message on recovery. On redelivery, Step 1 catches the duplicate in `processed_order_events`, skips domain mutation, and safely calls `msg.ack()`.
 
 ---
 
 ## 4. Key Configuration Settings
 
-Both services allow fine-tuning worker and consumer intervals through environment variables:
-
 | Setting | Service | Default | Purpose |
 | :--- | :--- | :--- | :--- |
 | `ORDERS_WORKER_INTERVAL_MS` | Orders | `2000` | Polling frequency for due outbox publications, expirations, and payments |
-| `TICKETS_EVENTS_CLAIM_IDLE_MS` | Tickets | `30000` | Idle threshold before `XAUTOCLAIM` reclaims abandoned pending messages |
-| `TICKETS_EVENTS_CLAIM_INTERVAL_MS`| Tickets | `10000` | How often the consumer scans for stale pending messages |
-| `TICKETS_EVENTS_BATCH_SIZE` | Tickets | `50` | Maximum message batch size per stream read |
-| `REDIS_URL` | Both | `redis://redis:6379` | Redis connection endpoint |
-
----
-
-## 5. Summary Cheat Sheet for Developers
-
-When modifying or debugging messaging code:
-
-1. **Need to publish a new business fact?**
-   Do **not** call Redis directly from HTTP handlers. Call `enqueueOrderFact({ orderId, orderVersion, eventType, payload })` inside your DB transaction (`STAGE 1`). Let `orders/src/messaging` handle envelope structure, SQL persistence, and outbox dispatching (`STAGE 2`).
-2. **Need to consume an event in Tickets?**
-   Tickets starts the ingestion consumer with `startOrderEventsConsumer()`. Define event schemas in `tickets/src/tickets/schemas.ts` and apply state convergence inside `applyOrderEventOnce` wrapped by `processed_order_events` (`STAGE 4`).
-3. **What if Redis goes down?**
-   Orders will continue committing transactions locally without failing customer requests. Outbox records simply accumulate in SQLite and will back off and auto-dispatch when Redis recovers.
+| `NATS_URL` | Both | `http://nats-srv:4222` | NATS Streaming connection endpoint |
+| `NATS_CLUSTER_ID` | Both | `ticketing` | NATS Streaming cluster identifier |

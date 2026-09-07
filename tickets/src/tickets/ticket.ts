@@ -123,6 +123,7 @@ type OrderEvent = {
   aggregateId: string;
   aggregateVersion: number;
   occurredAt: string;
+  correlationId?: string;
   payload: {
     ticketId: string;
   };

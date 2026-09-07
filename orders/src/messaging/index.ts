@@ -20,10 +20,11 @@ export {
  closeNatsClient as closeOrderMessaging,
 } from "./nats-client.js";
 export {
- enqueueOrderFact,
- listDueOrderEventPublications,
- markOrderEventPublished,
- recordOrderEventPublicationFailure,
+  enqueueOrderFact,
+  claimDueOrderEventPublications,
+  listDueOrderEventPublications,
+  markOrderEventPublished,
+  recordOrderEventPublicationFailure,
 } from "./outbox-repo.js";
 export {
  dispatchOutboxPublication,

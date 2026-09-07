@@ -24,7 +24,8 @@
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "check:commit": "npm run check:commit --workspace @stubhub/identity",
-    "check:push": "npm run check:push --workspace @stubhub/identity"
+    "check:push": "npm run check:push --workspace @stubhub/identity",
+    "demo:concurrency": "node --experimental-strip-types scripts/portfolio/demo-concurrency-drill.ts"
   },
   "engines": {
     "node": ">=24"

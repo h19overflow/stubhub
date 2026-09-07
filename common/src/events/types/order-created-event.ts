@@ -12,6 +12,7 @@ export interface OrderCreatedEvent {
     status: OrderStatus | string;
     userId: string;
     expiresAt: string;
+    correlationId?: string;
     ticket: {
       id: string;
       price: number;

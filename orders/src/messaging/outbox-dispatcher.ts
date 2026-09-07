@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { Stan } from "node-nats-streaming";
 // pi-lens-ignore: ts:2305
 import { Subjects } from "@stubhub/common";
@@ -7,11 +8,15 @@ import {
   OrderExpiredPublisher,
 } from "./publishers/index.js";
 import {
-  listDueOrderEventPublications,
+  claimDueOrderEventPublications,
   markOrderEventPublished,
   recordOrderEventPublicationFailure,
 } from "./outbox-repo.js";
 import type { OrderEventPublication } from "./types.js";
+
+const defaultWorkerId =
+  process.env.HOSTNAME ??
+  `orders-worker-${process.pid}-${randomBytes(3).toString("hex")}`;
 
 /**
  * Dispatches a single publication row to NATS Streaming via typed Publishers.
@@ -31,6 +36,7 @@ export async function dispatchOutboxPublication(
       ticketId,
       ticket: { id: ticketId },
       occurredAt: pub.createdAt,
+      correlationId: pub.correlationId ?? undefined,
     };
 
     if (
@@ -87,7 +93,7 @@ export async function dispatchDueOrderEvents(
   }
 
   const now = Date.now();
-  const publications = listDueOrderEventPublications(now, limit);
+  const publications = claimDueOrderEventPublications(defaultWorkerId, now, limit);
   if (publications.length === 0) return 0;
 
   let client: Stan;

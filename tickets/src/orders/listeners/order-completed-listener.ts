@@ -27,6 +27,7 @@ export class OrderCompletedListener extends Listener<OrderCompletedEvent> {
       aggregateId: data.id,
       aggregateVersion: data.version ?? 1,
       occurredAt: data.occurredAt ?? new Date().toISOString(),
+      correlationId: data.correlationId,
       payload: { ticketId },
     };
 

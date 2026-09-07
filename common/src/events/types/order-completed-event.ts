@@ -9,6 +9,7 @@ export interface OrderCompletedEvent {
     id: string;
     version?: number;
     messageId?: string;
+    correlationId?: string;
     ticketId?: string;
     ticket?: {
       id: string;

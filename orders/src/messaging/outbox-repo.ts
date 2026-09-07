@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { database } from "../database.js";
+import { database, withTransaction } from "../database.js";
 import { retryDelayMs } from "../retry-delay.js";
 import type {
   EnqueueOrderFactInput,
@@ -11,7 +11,8 @@ import type {
 const orderEventPublicationColumns = `
   id, aggregate_type, aggregate_id, aggregate_version,
   event_type, event_version, payload, created_at, updated_at,
-  published_at, attempt_count, next_attempt_at, last_error
+  published_at, attempt_count, next_attempt_at, last_error,
+  locked_by, locked_until, correlation_id
 `;
 
 function parsePayload(raw: string): OrderFactPayload {
@@ -40,6 +41,12 @@ function toPublication(row: OrderEventPublicationRow): OrderEventPublication {
     nextAttemptAt: new Date(row.next_attempt_at).toISOString(),
     attemptCount: row.attempt_count,
     lastError: row.last_error,
+    lockedBy: row.locked_by,
+    lockedUntil:
+      row.locked_until === null
+        ? null
+        : new Date(row.locked_until).toISOString(),
+    correlationId: row.correlation_id,
   };
 }
 
@@ -59,8 +66,8 @@ export function enqueueOrderFact(
     .prepare(`
     INSERT INTO order_event_publications (
       id, aggregate_type, aggregate_id, aggregate_version,
-      event_type, event_version, payload, created_at, updated_at, next_attempt_at
-    ) VALUES (?, 'order', ?, ?, ?, ?, ?, ?, ?, ?)
+      event_type, event_version, payload, created_at, updated_at, next_attempt_at, correlation_id
+    ) VALUES (?, 'order', ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
     .run(
       id,
@@ -72,6 +79,7 @@ export function enqueueOrderFact(
       now,
       now,
       now,
+      input.correlationId ?? null,
     );
 
   return {
@@ -88,10 +96,57 @@ export function enqueueOrderFact(
     attemptCount: 0,
     nextAttemptAt: new Date(now).toISOString(),
     lastError: null,
+    lockedBy: null,
+    lockedUntil: null,
+    correlationId: input.correlationId ?? null,
   };
 }
 
-/** Reads due rows from the database. */
+/**
+ * Atomically claims due outbox publications with a worker lease.
+ * Prevents multi-replica race conditions where concurrent workers duplicate publications.
+ */
+export function claimDueOrderEventPublications(
+  workerId: string,
+  now: number,
+  limit: number,
+  leaseDurationMs = 30_000,
+): OrderEventPublication[] {
+  return withTransaction(() => {
+    const rows = database
+      .prepare(`
+      SELECT ${orderEventPublicationColumns}
+      FROM order_event_publications
+      WHERE published_at IS NULL
+        AND next_attempt_at <= ?
+        AND (locked_until IS NULL OR locked_until <= ?)
+      ORDER BY next_attempt_at, created_at, id
+      LIMIT ?
+    `)
+      .all(now, now, limit) as unknown as OrderEventPublicationRow[];
+
+    if (rows.length === 0) {
+      return [];
+    }
+
+    const lockedUntil = now + leaseDurationMs;
+    const lockStmt = database.prepare(`
+      UPDATE order_event_publications
+      SET locked_by = ?, locked_until = ?, updated_at = ?
+      WHERE id = ? AND published_at IS NULL
+    `);
+
+    for (const row of rows) {
+      lockStmt.run(workerId, lockedUntil, now, row.id);
+      row.locked_by = workerId;
+      row.locked_until = lockedUntil;
+    }
+
+    return rows.map(toPublication);
+  });
+}
+
+/** Reads due rows from the database without claiming. */
 export function listDueOrderEventPublications(
   now: number,
   limit: number,
@@ -101,11 +156,13 @@ export function listDueOrderEventPublications(
     .prepare(`
     SELECT ${orderEventPublicationColumns}
     FROM order_event_publications
-    WHERE published_at IS NULL AND next_attempt_at <= ?
+    WHERE published_at IS NULL
+      AND next_attempt_at <= ?
+      AND (locked_until IS NULL OR locked_until <= ?)
     ORDER BY next_attempt_at, created_at, id
     LIMIT ?
   `)
-    .all(now, limit) as unknown as OrderEventPublicationRow[];
+    .all(now, now, limit) as unknown as OrderEventPublicationRow[];
   return rows.map(toPublication);
 }
 
@@ -115,7 +172,8 @@ export function markOrderEventPublished(id: string): boolean {
   const result = database
     .prepare(`
     UPDATE order_event_publications
-    SET published_at = ?, attempt_count = attempt_count + 1, updated_at = ?, last_error = NULL
+    SET published_at = ?, attempt_count = attempt_count + 1, updated_at = ?,
+        locked_by = NULL, locked_until = NULL, last_error = NULL
     WHERE id = ? AND published_at IS NULL
   `)
     .run(now, now, id);
@@ -132,6 +190,7 @@ export function recordOrderEventPublicationFailure(
     .prepare(`
     UPDATE order_event_publications
     SET attempt_count = attempt_count + 1, next_attempt_at = ?,
+        locked_by = NULL, locked_until = NULL,
         last_error = ?, updated_at = ?
     WHERE id = ? AND published_at IS NULL AND attempt_count = ?
   `)
