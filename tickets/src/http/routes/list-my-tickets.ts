@@ -18,8 +18,8 @@ router.get("/tickets/mine", requireAuth, (request, response) => {
   if (!parsed.success) {
     throw new HttpError(
       400,
-      "Invalid pagination",
       "invalid_pagination",
+      "Invalid pagination",
     );
   }
 

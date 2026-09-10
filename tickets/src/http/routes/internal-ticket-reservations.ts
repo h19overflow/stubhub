@@ -35,8 +35,8 @@ router.put(
     if (!ticketId.success || !command.success || invalidDeadline) {
       throw new HttpError(
         400,
-        "Invalid reservation",
         "invalid_reservation",
+        "Invalid reservation",
       );
     }
 
@@ -52,16 +52,16 @@ router.put(
       return;
     }
     if (result.outcome === "not_found") {
-      throw new HttpError(404, "Ticket not found", "ticket_not_found");
+      throw new HttpError(404, "ticket_not_found", "Ticket not found");
     }
     if (result.outcome === "conflict") {
       throw new HttpError(
         409,
-        "Reservation deadline conflicts",
         "reservation_conflict",
+        "Reservation deadline conflicts",
       );
     }
-    throw new HttpError(409, "Ticket is unavailable", "ticket_unavailable");
+    throw new HttpError(409, "ticket_unavailable", "Ticket is unavailable");
   },
 );
 
@@ -80,8 +80,8 @@ router.get(
     if (!ticketId.success || !orderId.success) {
       throw new HttpError(
         400,
-        "Invalid reservation identity",
         "invalid_reservation_identity",
+        "Invalid reservation identity",
       );
     }
 
@@ -89,8 +89,8 @@ router.get(
     if (!reservation) {
       throw new HttpError(
         404,
-        "Reservation not found",
         "reservation_not_found",
+        "Reservation not found",
       );
     }
     response.json({ reservation });
@@ -115,8 +115,8 @@ router.post(
     if (!ticketId.success || !orderId.success || hasBodyFields) {
       throw new HttpError(
         400,
-        "Invalid reservation identity",
         "invalid_reservation_identity",
+        "Invalid reservation identity",
       );
     }
 

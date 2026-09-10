@@ -130,7 +130,10 @@ test("POST /tickets requires authentication before accepting an upload", async (
   // `equal` compares one primitive value; `deepEqual` compares object/array contents.
   assert.equal(response.status, 401);
   assert.equal(response.headers.get("www-authenticate"), "Bearer");
-  assert.deepEqual(await response.json(), { error: "Authentication required" });
+  assert.deepEqual(await response.json(), {
+    error: "Authentication required",
+    code: "authentication_required",
+  });
   assert.equal(ticketCount(), 0);
   assert.deepEqual(storedImages(), []);
   assert.deepEqual(stagedUploads(), []);
@@ -224,6 +227,7 @@ test("POST /tickets rejects different data using an existing idempotency key", a
   assert.equal(conflictResponse.status, 409);
   assert.deepEqual(await conflictResponse.json(), {
     error: "Idempotency key was already used for different ticket data",
+    code: "idempotency_conflict",
   });
   assert.equal(ticketCount(), 1);
   assert.deepEqual(storedImages(), [`${firstBody.ticket.id}.png`]);
@@ -245,7 +249,10 @@ test("POST /tickets rejects an unsupported image and removes the staged upload",
 
   // Assert the rejection plus complete rollback/cleanup of side effects.
   assert.equal(response.status, 415);
-  assert.deepEqual(await response.json(), { error: "Image must be JPEG, PNG, or WebP" });
+  assert.deepEqual(await response.json(), {
+    error: "Image must be JPEG, PNG, or WebP",
+    code: "unsupported_image",
+  });
   assert.equal(ticketCount(), 0);
   assert.deepEqual(storedImages(), []);
   assert.deepEqual(stagedUploads(), []);

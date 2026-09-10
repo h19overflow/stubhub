@@ -18,8 +18,8 @@ router.get("/tickets", (request, response) => {
   if (!parsed.success) {
     throw new HttpError(
       400,
-      "Invalid ticket filters",
       "invalid_filters",
+      "Invalid ticket filters",
     );
   }
 

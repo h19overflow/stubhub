@@ -33,8 +33,8 @@ router.patch("/tickets/:ticketId/price", requireAuth, (request, response) => {
   if (!body.success) {
     throw new HttpError(
       400,
-      "Valid priceCents is required",
       "invalid_price",
+      "Valid priceCents is required",
     );
   }
 

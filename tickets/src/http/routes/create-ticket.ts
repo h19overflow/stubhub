@@ -31,8 +31,8 @@ function parseCreateTicketRequest(request: Request) {
   if (!idempotencyKey.success) {
     throw new HttpError(
       400,
-      "Valid Idempotency-Key is required",
       "invalid_idempotency_key",
+      "Valid Idempotency-Key is required",
     );
   }
 
@@ -41,8 +41,8 @@ function parseCreateTicketRequest(request: Request) {
   if (!fields.success || !imagePath) {
     throw new HttpError(
       400,
-      "Valid ticket fields and image are required",
       "invalid_ticket",
+      "Valid ticket fields and image are required",
     );
   }
 
@@ -82,8 +82,8 @@ function sendCreateTicketResponse(
 
   throw new HttpError(
     409,
-    "Idempotency key was already used for different ticket data",
     "idempotency_conflict",
+    "Idempotency key was already used for different ticket data",
   );
 }
 
