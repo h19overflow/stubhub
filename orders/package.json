@@ -9,6 +9,10 @@
     "build": "npm run build:common && tsc -p tsconfig.json",
     "migrate": "npm run build && node --env-file-if-exists=.env dist/database.js",
     "start": "node --env-file-if-exists=.env dist/index.js",
+    "test:build": "npm run build:common && node -e \"require('node:fs').rmSync('dist-test', { recursive: true, force: true })\" && tsc -p tsconfig.test.json && node -e \"require('node:fs').cpSync('migrations', 'dist-test/migrations', { recursive: true })\"",
+    "test": "npm run test:build && node --env-file=tests/test.env --test --test-concurrency=1 \"dist-test/tests/**/*.test.js\"",
+    "test:unit": "npm run test:build && node --env-file=tests/test.env --test --test-concurrency=1 \"dist-test/tests/unit/**/*.test.js\"",
+    "test:integration": "npm run test:build && node --env-file=tests/test.env --test --test-concurrency=1 \"dist-test/tests/integration/**/*.test.js\"",
     "typecheck": "npm run build:common && tsc --noEmit"
   },
   "engines": {
@@ -17,8 +21,7 @@
   "dependencies": {
     "@stubhub/common": "0.1.0",
     "express": "^5.2.1",
-    "node-nats-streaming": "^0.3.2",
-    "redis": "^6.2.1"
+    "node-nats-streaming": "^0.3.2"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
