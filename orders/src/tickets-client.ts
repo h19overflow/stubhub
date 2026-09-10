@@ -88,9 +88,15 @@ function parseReservation(
   };
 }
 
-const baseUrl = process.env.TICKETS_SERVICE_URL ?? "http://tickets:3002";
-const token = process.env.INTERNAL_SERVICE_TOKEN;
+function getBaseUrl(): string {
+  return process.env.TICKETS_SERVICE_URL ?? "http://tickets:3002";
+}
 
+function getToken(): string {
+  const token = process.env.INTERNAL_SERVICE_TOKEN;
+  if (!token) throw new Error("INTERNAL_SERVICE_TOKEN is required");
+  return token;
+}
 /**
  * Authenticated fetch to the Tickets internal API.
  *
@@ -100,8 +106,8 @@ const token = process.env.INTERNAL_SERVICE_TOKEN;
  * persist a retry (schedulePurchase) instead of failing the order.
  */
 async function call(path: string, init?: RequestInit): Promise<Response> {
-  if (!token) throw new Error("INTERNAL_SERVICE_TOKEN is required");
-
+  const token = getToken();
+  const baseUrl = getBaseUrl();
   try {
     return await fetch(`${baseUrl}${path}`, {
       ...init,
