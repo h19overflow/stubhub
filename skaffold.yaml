@@ -103,11 +103,6 @@ portForward:
     port: 3004
     localPort: 3004
   - resourceType: service
-    resourceName: redis
-    namespace: stubhub
-    port: 6379
-    localPort: 6379
-  - resourceType: service
     resourceName: mailpit
     namespace: stubhub
     port: 8025

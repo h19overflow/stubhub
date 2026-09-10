@@ -34,8 +34,6 @@ spec:
                 secretKeyRef:
                   name: stubhub-internal-service
                   key: INTERNAL_SERVICE_TOKEN
-            - name: REDIS_URL
-              value: redis://redis:6379
             - name: NATS_URL
               value: http://nats-srv:4222
             - name: NATS_CLUSTER_ID

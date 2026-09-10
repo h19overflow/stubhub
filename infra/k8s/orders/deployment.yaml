@@ -36,8 +36,6 @@ spec:
                   key: INTERNAL_SERVICE_TOKEN
             - name: TICKETS_SERVICE_URL
               value: http://tickets:3002
-            - name: REDIS_URL
-              value: redis://redis:6379
             - name: NATS_URL
               value: http://nats-srv:4222
             - name: NATS_CLUSTER_ID
